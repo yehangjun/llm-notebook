@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -23,7 +25,12 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token') from exc
 
     user_id = payload.get('sub')
-    user = db.get(User, user_id)
+    try:
+        user_uuid = UUID(str(user_id))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token payload') from exc
+
+    user = db.get(User, user_uuid)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='User not found')
     return user

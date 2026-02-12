@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -11,7 +13,7 @@ router = APIRouter(prefix='/social', tags=['social'])
 
 @router.post('/follow/{user_id}', status_code=status.HTTP_204_NO_CONTENT)
 def follow_user(
-    user_id: str,
+    user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -35,7 +37,7 @@ def follow_user(
 
 
 @router.get('/public-notes/{user_id}', response_model=list[NoteOut])
-def public_notes(user_id: str, db: Session = Depends(get_db)):
+def public_notes(user_id: UUID, db: Session = Depends(get_db)):
     notes = (
         db.query(Note)
         .filter(Note.user_id == user_id, Note.is_public.is_(True))

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -11,7 +13,7 @@ router = APIRouter(prefix='/bookmarks', tags=['bookmarks'])
 
 @router.post('/{article_id}', status_code=status.HTTP_204_NO_CONTENT)
 def add_bookmark(
-    article_id: str,
+    article_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

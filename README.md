@@ -23,8 +23,15 @@ Single API backend MVP for AI information aggregation + bookmarks + notes + basi
 ./scripts/smoke_test.sh
 ```
 
-3. Open docs:
+3. Clean all local containers and volumes:
 
+```bash
+./scripts/clean.sh
+```
+
+4. Open docs:
+
+- Frontend: `http://localhost:8000/`
 - Swagger: `http://localhost:8000/docs`
 
 ## Environment

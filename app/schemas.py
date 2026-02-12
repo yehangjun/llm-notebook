@@ -1,4 +1,6 @@
 from datetime import datetime
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -12,13 +14,13 @@ class TokenResponse(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: str
+    id: UUID
     phone: str
     display_name: str
 
 
 class ArticleOut(BaseModel):
-    id: str
+    id: UUID
     source_id: int
     title: str
     summary: str
@@ -28,7 +30,7 @@ class ArticleOut(BaseModel):
 
 
 class NoteCreate(BaseModel):
-    article_id: str | None = None
+    article_id: UUID | None = None
     title: str = Field(min_length=1, max_length=300)
     content: str = Field(min_length=1)
     is_public: bool = False
@@ -36,8 +38,8 @@ class NoteCreate(BaseModel):
 
 
 class NoteOut(BaseModel):
-    id: str
-    article_id: str | None
+    id: UUID
+    article_id: UUID | None
     title: str
     content: str
     is_public: bool

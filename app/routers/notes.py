@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -84,7 +85,7 @@ def list_my_notes(
 
 @router.patch('/{note_id}', response_model=NoteOut)
 def update_note(
-    note_id: str,
+    note_id: UUID,
     payload: NoteCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
