@@ -20,13 +20,6 @@ class VerifyEmailCodeRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=100)
 
 
-class MockSsoLoginRequest(BaseModel):
-    provider: str = Field(min_length=2, max_length=50)
-    provider_user_id: str = Field(min_length=2, max_length=255)
-    email: str | None = Field(default=None, min_length=5, max_length=320)
-    display_name: str | None = Field(default=None, max_length=100)
-
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = 'bearer'

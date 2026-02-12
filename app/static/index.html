@@ -186,16 +186,9 @@
           <button id="logoutBtn" class="secondary">Logout</button>
         </div>
         <div class="row">
-          <label id="ssoLabel" class="muted" for="ssoProvider">SSO (Mock)</label>
-          <select id="ssoProvider">
-            <option value="google">Google</option>
-            <option value="github">GitHub</option>
-            <option value="apple">Apple</option>
-            <option value="wechat">WeChat</option>
-          </select>
-          <input id="ssoSubject" placeholder="SSO Subject ID" value="demo-subject-001" style="min-width: 180px; flex: 1" />
-          <input id="ssoEmail" placeholder="Email for SSO (optional)" style="min-width: 220px; flex: 1" />
-          <button id="ssoLoginBtn" class="secondary">SSO Login</button>
+          <span id="ssoLabel" class="muted">SSO</span>
+          <button id="gmailSsoBtn" class="secondary">Login with Gmail</button>
+          <button id="wechatSsoBtn" class="secondary">Login with WeChat</button>
           <span class="spacer"></span>
           <span id="loginStatus" class="status muted">Not logged in</span>
         </div>

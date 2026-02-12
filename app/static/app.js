@@ -7,6 +7,7 @@ const browserUiLang = (navigator.language || 'en').toLowerCase().startsWith('zh'
 const state = {
   token: localStorage.getItem(tokenKey) || '',
   uiLang: savedUiLang === 'zh' || savedUiLang === 'en' ? savedUiLang : browserUiLang,
+  ssoProviders: [],
 };
 
 const i18n = {
@@ -21,11 +22,9 @@ const i18n = {
     emailCodePlaceholder: '邮箱验证码',
     verifyLogin: '验证并登录',
     logout: '退出登录',
-    ssoLabel: 'SSO（模拟）',
-    ssoSubjectPlaceholder: 'SSO Subject ID',
-    ssoEmailPlaceholder: 'SSO 邮箱（可选）',
-    ssoLogin: 'SSO 登录',
-    ssoSubjectRequired: '请输入 SSO Subject ID',
+    ssoLabel: 'SSO 登录',
+    gmailSso: 'Gmail 登录',
+    wechatSso: '微信登录',
     notLoggedIn: '未登录',
     codeSent: '验证码已发送',
     debugCode: '开发验证码',
@@ -60,7 +59,8 @@ const i18n = {
     emailRequired: '请输入邮箱',
     loginFailed: '登录失败',
     sendCodeFailed: '发送验证码失败',
-    ssoLoginFailed: 'SSO 登录失败',
+    ssoStartFailed: '发起 SSO 失败',
+    ssoProviderNotAvailable: '该 SSO 提供方暂不可用',
     titleContentRequired: '标题和内容必填',
     noteCreated: '笔记已创建',
     createFailed: '创建失败',
@@ -78,11 +78,9 @@ const i18n = {
     emailCodePlaceholder: 'Email Code',
     verifyLogin: 'Verify Login',
     logout: 'Logout',
-    ssoLabel: 'SSO (Mock)',
-    ssoSubjectPlaceholder: 'SSO Subject ID',
-    ssoEmailPlaceholder: 'Email for SSO (optional)',
-    ssoLogin: 'SSO Login',
-    ssoSubjectRequired: 'SSO Subject ID is required',
+    ssoLabel: 'SSO Login',
+    gmailSso: 'Login with Gmail',
+    wechatSso: 'Login with WeChat',
     notLoggedIn: 'Not logged in',
     codeSent: 'Verification code sent',
     debugCode: 'Dev code',
@@ -117,7 +115,8 @@ const i18n = {
     emailRequired: 'Email is required',
     loginFailed: 'Login failed',
     sendCodeFailed: 'Send code failed',
-    ssoLoginFailed: 'SSO login failed',
+    ssoStartFailed: 'SSO start failed',
+    ssoProviderNotAvailable: 'This SSO provider is unavailable',
     titleContentRequired: 'Title and content are required',
     noteCreated: 'Note created',
     createFailed: 'Create failed',
@@ -152,10 +151,8 @@ const el = {
   verifyCodeBtn: document.getElementById('verifyCodeBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
   ssoLabel: document.getElementById('ssoLabel'),
-  ssoProvider: document.getElementById('ssoProvider'),
-  ssoSubject: document.getElementById('ssoSubject'),
-  ssoEmail: document.getElementById('ssoEmail'),
-  ssoLoginBtn: document.getElementById('ssoLoginBtn'),
+  gmailSsoBtn: document.getElementById('gmailSsoBtn'),
+  wechatSsoBtn: document.getElementById('wechatSsoBtn'),
   loginStatus: document.getElementById('loginStatus'),
   feedTitle: document.getElementById('feedTitle'),
   lang: document.getElementById('lang'),
@@ -222,9 +219,8 @@ function applyTranslations() {
   el.verifyCodeBtn.textContent = t('verifyLogin');
   el.logoutBtn.textContent = t('logout');
   el.ssoLabel.textContent = t('ssoLabel');
-  el.ssoSubject.placeholder = t('ssoSubjectPlaceholder');
-  el.ssoEmail.placeholder = t('ssoEmailPlaceholder');
-  el.ssoLoginBtn.textContent = t('ssoLogin');
+  el.gmailSsoBtn.textContent = t('gmailSso');
+  el.wechatSsoBtn.textContent = t('wechatSso');
 
   el.feedTitle.textContent = t('feedTitle');
   const currentFeedLang = el.lang.value;
@@ -255,6 +251,29 @@ function applyTranslations() {
   if (!state.token) {
     setMutedStatus(el.loginStatus, t('notLoggedIn'));
   }
+}
+
+function applyTokenFromHash() {
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  if (!hash) {
+    return;
+  }
+
+  const params = new URLSearchParams(hash);
+  const token = params.get('access_token');
+  if (!token) {
+    return;
+  }
+
+  state.token = token;
+  localStorage.setItem(tokenKey, token);
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+}
+
+function applySsoProviderAvailability() {
+  const providers = new Set(state.ssoProviders);
+  el.gmailSsoBtn.disabled = !providers.has('gmail');
+  el.wechatSsoBtn.disabled = !providers.has('wechat');
 }
 
 function renderFeed(items) {
@@ -437,28 +456,20 @@ async function verifyEmailCodeLogin() {
   }
 }
 
-async function mockSsoLogin() {
-  const provider = el.ssoProvider.value;
-  const provider_user_id = el.ssoSubject.value.trim();
-  const email = el.ssoEmail.value.trim() || el.email.value.trim() || null;
-
-  if (!provider_user_id) {
-    setStatus(el.loginStatus, t('ssoSubjectRequired'), false);
+async function startSsoLogin(provider) {
+  if (!state.ssoProviders.includes(provider)) {
+    setStatus(el.loginStatus, t('ssoProviderNotAvailable'), false);
     return;
   }
 
+  const redirect = `${window.location.origin}${window.location.pathname}`;
+  const startPath = `/auth/sso/${encodeURIComponent(provider)}/start?redirect=${encodeURIComponent(redirect)}`;
+
   try {
-    const out = await api('/auth/sso/mock-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, provider_user_id, email }),
-    });
-    state.token = out.access_token;
-    localStorage.setItem(tokenKey, state.token);
-    await refreshMe();
-    await Promise.all([loadBookmarks(), loadNotes()]);
+    const out = await api(startPath);
+    window.location.href = out.auth_url;
   } catch (err) {
-    setStatus(el.loginStatus, `${t('ssoLoginFailed')}: ${err.message}`, false);
+    setStatus(el.loginStatus, `${t('ssoStartFailed')}: ${err.message}`, false);
   }
 }
 
@@ -515,28 +526,37 @@ async function onUiLangChange() {
   localStorage.setItem(uiLangKey, state.uiLang);
   applyTranslations();
 
-  await Promise.all([
-    loadFeed(),
-    loadBookmarks(),
-    loadNotes(),
-    refreshMe(),
-  ]);
+  await Promise.all([loadFeed(), loadBookmarks(), loadNotes(), refreshMe()]);
+}
+
+async function loadSsoProviders() {
+  try {
+    const out = await api('/auth/sso/providers');
+    state.ssoProviders = Array.isArray(out.providers) ? out.providers : [];
+  } catch (_err) {
+    state.ssoProviders = [];
+  }
+  applySsoProviderAvailability();
 }
 
 async function boot() {
+  applyTokenFromHash();
+
   el.uiLang.value = state.uiLang;
   applyTranslations();
 
   el.uiLang.onchange = onUiLangChange;
   el.sendCodeBtn.onclick = sendEmailCode;
   el.verifyCodeBtn.onclick = verifyEmailCodeLogin;
-  el.ssoLoginBtn.onclick = mockSsoLogin;
+  el.gmailSsoBtn.onclick = () => startSsoLogin('gmail');
+  el.wechatSsoBtn.onclick = () => startSsoLogin('wechat');
   el.logoutBtn.onclick = doLogout;
   el.loadFeedBtn.onclick = loadFeed;
   el.loadBookmarksBtn.onclick = loadBookmarks;
   el.loadNotesBtn.onclick = loadNotes;
   el.createNoteBtn.onclick = createNote;
 
+  await loadSsoProviders();
   await loadFeed();
   await refreshMe();
   await loadBookmarks();

@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from urllib.parse import urlencode
+
+import httpx
 
 from app.core.config import settings
 
@@ -20,34 +23,140 @@ class SsoProvider(ABC):
     name: str
 
     @abstractmethod
-    def authenticate(
-        self,
-        provider_user_id: str,
-        email: str | None = None,
-        display_name: str | None = None,
-    ) -> SsoPrincipal:
+    def build_authorize_url(self, state: str) -> str:
+        pass
+
+    @abstractmethod
+    def exchange_code(self, code: str) -> SsoPrincipal:
         pass
 
 
-class MockPassthroughSsoProvider(SsoProvider):
-    def __init__(self, name: str):
-        self.name = name.strip().lower()
+class GmailSsoProvider(SsoProvider):
+    name = 'gmail'
 
-    def authenticate(
-        self,
-        provider_user_id: str,
-        email: str | None = None,
-        display_name: str | None = None,
-    ) -> SsoPrincipal:
-        subject = provider_user_id.strip()
+    def __init__(self, client_id: str, client_secret: str, redirect_uri: str):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.redirect_uri = redirect_uri
+
+    def build_authorize_url(self, state: str) -> str:
+        params = {
+            'client_id': self.client_id,
+            'redirect_uri': self.redirect_uri,
+            'response_type': 'code',
+            'scope': 'openid email profile',
+            'state': state,
+            'access_type': 'online',
+            'prompt': 'consent',
+        }
+        return f'https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}'
+
+    def exchange_code(self, code: str) -> SsoPrincipal:
+        with httpx.Client(timeout=20) as client:
+            token_res = client.post(
+                'https://oauth2.googleapis.com/token',
+                data={
+                    'code': code,
+                    'client_id': self.client_id,
+                    'client_secret': self.client_secret,
+                    'redirect_uri': self.redirect_uri,
+                    'grant_type': 'authorization_code',
+                },
+            )
+            if token_res.status_code != 200:
+                raise SsoProviderError(f'Gmail token exchange failed: {token_res.text}')
+            token_payload = token_res.json()
+            access_token = token_payload.get('access_token')
+            if not access_token:
+                raise SsoProviderError('Gmail token exchange returned no access_token')
+
+            user_res = client.get(
+                'https://openidconnect.googleapis.com/v1/userinfo',
+                headers={'Authorization': f'Bearer {access_token}'},
+            )
+            if user_res.status_code != 200:
+                raise SsoProviderError(f'Gmail userinfo fetch failed: {user_res.text}')
+            user = user_res.json()
+
+        subject = str(user.get('sub') or '').strip()
         if not subject:
-            raise SsoProviderError('provider_user_id is required')
+            raise SsoProviderError('Gmail userinfo missing subject')
 
         return SsoPrincipal(
             provider=self.name,
             provider_user_id=subject,
-            email=email,
-            display_name=display_name,
+            email=(user.get('email') or '').strip() or None,
+            display_name=(user.get('name') or '').strip() or None,
+        )
+
+
+class WechatSsoProvider(SsoProvider):
+    name = 'wechat'
+
+    def __init__(self, app_id: str, app_secret: str, redirect_uri: str):
+        self.app_id = app_id
+        self.app_secret = app_secret
+        self.redirect_uri = redirect_uri
+
+    def build_authorize_url(self, state: str) -> str:
+        params = {
+            'appid': self.app_id,
+            'redirect_uri': self.redirect_uri,
+            'response_type': 'code',
+            'scope': 'snsapi_login',
+            'state': state,
+        }
+        return f'https://open.weixin.qq.com/connect/qrconnect?{urlencode(params)}#wechat_redirect'
+
+    def exchange_code(self, code: str) -> SsoPrincipal:
+        with httpx.Client(timeout=20) as client:
+            token_res = client.get(
+                'https://api.weixin.qq.com/sns/oauth2/access_token',
+                params={
+                    'appid': self.app_id,
+                    'secret': self.app_secret,
+                    'code': code,
+                    'grant_type': 'authorization_code',
+                },
+            )
+            if token_res.status_code != 200:
+                raise SsoProviderError(f'WeChat token exchange failed: {token_res.text}')
+            token_payload = token_res.json()
+            if token_payload.get('errcode'):
+                raise SsoProviderError(
+                    f"WeChat token exchange error: {token_payload.get('errmsg', token_payload.get('errcode'))}"
+                )
+
+            access_token = token_payload.get('access_token')
+            openid = token_payload.get('openid')
+            if not access_token or not openid:
+                raise SsoProviderError('WeChat token exchange returned missing access_token/openid')
+
+            user_res = client.get(
+                'https://api.weixin.qq.com/sns/userinfo',
+                params={
+                    'access_token': access_token,
+                    'openid': openid,
+                    'lang': 'zh_CN',
+                },
+            )
+            if user_res.status_code != 200:
+                raise SsoProviderError(f'WeChat userinfo fetch failed: {user_res.text}')
+            user = user_res.json()
+            if user.get('errcode'):
+                raise SsoProviderError(
+                    f"WeChat userinfo error: {user.get('errmsg', user.get('errcode'))}"
+                )
+
+        provider_user_id = str(user.get('unionid') or openid).strip()
+        if not provider_user_id:
+            raise SsoProviderError('WeChat userinfo missing identity')
+
+        return SsoPrincipal(
+            provider=self.name,
+            provider_user_id=provider_user_id,
+            email=None,
+            display_name=(user.get('nickname') or '').strip() or None,
         )
 
 
@@ -68,19 +177,27 @@ class SsoProviderRegistry:
         return sorted(self._providers.keys())
 
 
-def _parse_provider_list(raw: str) -> list[str]:
-    names = [item.strip().lower() for item in raw.split(',') if item.strip()]
-    return list(dict.fromkeys(names))
-
-
 def build_default_registry() -> SsoProviderRegistry:
     registry = SsoProviderRegistry()
-    provider_names = _parse_provider_list(settings.mock_sso_providers)
-    if not provider_names:
-        provider_names = ['google', 'github', 'apple', 'wechat']
 
-    for name in provider_names:
-        registry.register(MockPassthroughSsoProvider(name=name))
+    if settings.gmail_oauth_client_id and settings.gmail_oauth_client_secret:
+        registry.register(
+            GmailSsoProvider(
+                client_id=settings.gmail_oauth_client_id,
+                client_secret=settings.gmail_oauth_client_secret,
+                redirect_uri=settings.gmail_oauth_redirect_uri,
+            )
+        )
+
+    if settings.wechat_oauth_app_id and settings.wechat_oauth_app_secret:
+        registry.register(
+            WechatSsoProvider(
+                app_id=settings.wechat_oauth_app_id,
+                app_secret=settings.wechat_oauth_app_secret,
+                redirect_uri=settings.wechat_oauth_redirect_uri,
+            )
+        )
+
     return registry
 
 

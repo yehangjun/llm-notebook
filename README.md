@@ -46,15 +46,19 @@ Single API backend MVP for AI information aggregation + bookmarks + notes + basi
 
 Key auth configs:
 
-- `MOCK_SSO_ENABLED=true|false`
-- `MOCK_SSO_PROVIDERS=google,github,apple,wechat`
+- `EMAIL_DEBUG_CODE_ENABLED=true|false`
+- `SMTP_HOST / SMTP_PORT / SMTP_USERNAME / SMTP_PASSWORD`
+- `GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REDIRECT_URI`
+- `WECHAT_OAUTH_APP_ID / WECHAT_OAUTH_APP_SECRET / WECHAT_OAUTH_REDIRECT_URI`
+- `SSO_SUCCESS_REDIRECT_URL / SSO_ALLOWED_REDIRECT_HOSTS`
 
 ## API (MVP)
 
 - `POST /auth/email/send-code` send email OTP (dev env returns debug code)
 - `POST /auth/email/verify-code` verify OTP and login
 - `GET /auth/sso/providers`
-- `POST /auth/sso/mock-login` mock SSO login for development
+- `GET /auth/sso/{provider}/start`
+- `GET /auth/sso/{provider}/callback`
 - `GET /auth/me`
 - `GET /feed`
 - `POST /bookmarks/{article_id}`
@@ -78,7 +82,8 @@ Incremental auth migration for existing volumes:
 
 ## Notes
 
-- Current MVP auth is `email OTP + mock SSO` for development-stage verification.
-- Mock SSO is provider-pluggable via `app/services/sso.py` (`SsoProvider` + registry).
+- Current auth is `email OTP + real OAuth SSO`.
+- Supported SSO providers are `gmail` and `wechat`.
+- SSO provider integration is pluggable via `app/services/sso.py` (`SsoProvider` + registry).
 - `phone` field is retained in user profile schema but is not collected in current flow.
 - Keep this as a modular monolith so each module can be split into microservices later.

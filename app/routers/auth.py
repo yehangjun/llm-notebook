@@ -3,8 +3,10 @@ import hashlib
 import hmac
 import re
 import secrets
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -12,15 +14,21 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import AuthIdentity, EmailOtp, User
 from app.schemas import (
-    MockSsoLoginRequest,
     SendEmailCodeRequest,
     SendEmailCodeResponse,
     TokenResponse,
     UserOut,
     VerifyEmailCodeRequest,
 )
+from app.services.email import EmailDeliveryError, send_login_code_email, smtp_is_configured
 from app.services.security import create_access_token
 from app.services.sso import SsoPrincipal, SsoProviderError, get_sso_registry
+from app.services.sso_state import (
+    SsoStateError,
+    create_sso_state,
+    parse_sso_state,
+    validate_redirect_url,
+)
 
 router = APIRouter(prefix='/auth', tags=['auth'])
 
@@ -45,6 +53,71 @@ def _hash_otp(email: str, code: str) -> str:
     return hmac.new(settings.secret_key.encode('utf-8'), message, hashlib.sha256).hexdigest()
 
 
+def _normalize_principal_email(principal: SsoPrincipal) -> SsoPrincipal:
+    if not principal.email:
+        return principal
+
+    normalized = _normalize_email(principal.email)
+    if not _is_valid_email(normalized):
+        raise HTTPException(status_code=400, detail='Provider returned invalid email')
+
+    return SsoPrincipal(
+        provider=principal.provider,
+        provider_user_id=principal.provider_user_id,
+        email=normalized,
+        display_name=principal.display_name,
+    )
+
+
+def _get_or_create_user_by_sso(principal: SsoPrincipal, db: Session) -> User:
+    identity = (
+        db.query(AuthIdentity)
+        .filter(
+            AuthIdentity.provider == principal.provider,
+            AuthIdentity.provider_user_id == principal.provider_user_id,
+        )
+        .first()
+    )
+    if identity:
+        user = db.get(User, identity.user_id)
+        if not user:
+            raise HTTPException(status_code=500, detail='Identity user missing')
+        return user
+
+    user = None
+    if principal.email:
+        user = db.query(User).filter(User.email == principal.email).first()
+
+    if not user:
+        display_name = principal.display_name or f'{principal.provider}_{principal.provider_user_id[-6:]}'
+        user = User(
+            email=principal.email,
+            phone=None,
+            email_verified=bool(principal.email),
+            display_name=display_name,
+        )
+        db.add(user)
+        db.flush()
+    else:
+        if principal.email and not user.email:
+            user.email = principal.email
+        if principal.email and user.email == principal.email:
+            user.email_verified = True
+        if principal.display_name:
+            user.display_name = principal.display_name
+
+    db.add(
+        AuthIdentity(
+            user_id=user.id,
+            provider=principal.provider,
+            provider_user_id=principal.provider_user_id,
+            email=principal.email,
+            display_name=principal.display_name,
+        )
+    )
+    return user
+
+
 @router.post('/email/send-code', response_model=SendEmailCodeResponse)
 def send_email_code(payload: SendEmailCodeRequest, db: Session = Depends(get_db)):
     email = _normalize_email(payload.email)
@@ -63,7 +136,15 @@ def send_email_code(payload: SendEmailCodeRequest, db: Session = Depends(get_db)
     db.add(otp)
     db.commit()
 
-    debug_code = otp_code if settings.app_env != 'prod' else None
+    if smtp_is_configured():
+        try:
+            send_login_code_email(email, otp_code)
+        except EmailDeliveryError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+    elif not settings.email_debug_code_enabled:
+        raise HTTPException(status_code=500, detail='SMTP is not configured')
+
+    debug_code = otp_code if settings.email_debug_code_enabled else None
     return SendEmailCodeResponse(
         sent=True,
         expires_in_seconds=settings.email_otp_expire_minutes * 60,
@@ -106,9 +187,7 @@ def verify_email_code(payload: VerifyEmailCodeRequest, db: Session = Depends(get
 
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        display_name = (payload.display_name or '').strip()
-        if not display_name:
-            display_name = f'user_{secrets.randbelow(10000):04d}'
+        display_name = (payload.display_name or '').strip() or f'user_{secrets.randbelow(10000):04d}'
         user = User(
             email=email,
             phone=None,
@@ -133,96 +212,75 @@ def sso_providers():
     return {'providers': sso_registry.names()}
 
 
-@router.post('/sso/mock-login', response_model=TokenResponse)
-def mock_sso_login(payload: MockSsoLoginRequest, db: Session = Depends(get_db)):
-    if not settings.mock_sso_enabled:
-        raise HTTPException(status_code=403, detail='Mock SSO disabled')
-
-    provider_name = payload.provider.strip().lower()
-    provider = sso_registry.get(provider_name)
-    if provider is None:
+@router.get('/sso/{provider}/start')
+def sso_start(provider: str, redirect: str | None = Query(default=None)):
+    provider_name = provider.strip().lower()
+    sso_provider = sso_registry.get(provider_name)
+    if sso_provider is None:
         raise HTTPException(status_code=400, detail='Unsupported provider')
 
-    normalized_email = None
-    if payload.email:
-        normalized_email = _normalize_email(payload.email)
-        if not _is_valid_email(normalized_email):
-            raise HTTPException(status_code=400, detail='Invalid email format')
-
-    requested_display_name = (payload.display_name or '').strip() or None
+    redirect_url = redirect or settings.sso_success_redirect_url
     try:
-        principal = provider.authenticate(
-            provider_user_id=payload.provider_user_id,
-            email=normalized_email,
-            display_name=requested_display_name,
-        )
+        redirect_url = validate_redirect_url(redirect_url)
+    except SsoStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    state_token = create_sso_state(provider=provider_name, success_redirect_url=redirect_url)
+
+    try:
+        auth_url = sso_provider.build_authorize_url(state=state_token)
     except SsoProviderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if principal.email:
-        principal_email = _normalize_email(principal.email)
-        if not _is_valid_email(principal_email):
-            raise HTTPException(status_code=400, detail='Provider returned invalid email')
-        principal = SsoPrincipal(
-            provider=principal.provider,
-            provider_user_id=principal.provider_user_id,
-            email=principal_email,
-            display_name=principal.display_name,
-        )
+    return {
+        'provider': provider_name,
+        'auth_url': auth_url,
+    }
 
-    identity = (
-        db.query(AuthIdentity)
-        .filter(
-            AuthIdentity.provider == principal.provider,
-            AuthIdentity.provider_user_id == principal.provider_user_id,
-        )
-        .first()
-    )
 
-    if identity:
-        user = db.get(User, identity.user_id)
-        if not user:
-            raise HTTPException(status_code=500, detail='Identity user missing')
-        return TokenResponse(access_token=create_access_token(user.id))
+@router.get('/sso/{provider}/callback')
+def sso_callback(
+    provider: str,
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    if error:
+        detail = error_description or error
+        raise HTTPException(status_code=400, detail=f'SSO authorize failed: {detail}')
 
-    user = None
-    if principal.email:
-        user = db.query(User).filter(User.email == principal.email).first()
+    if not code or not state:
+        raise HTTPException(status_code=400, detail='Missing code/state')
 
-    if not user:
-        display_name = principal.display_name or ''
-        if not display_name:
-            display_name = f'{principal.provider}_{principal.provider_user_id[-6:]}'
-        user = User(
-            email=principal.email,
-            phone=None,
-            email_verified=bool(principal.email),
-            display_name=display_name,
-        )
-        db.add(user)
-        db.flush()
-    else:
-        if principal.email and not user.email:
-            user.email = principal.email
-        if principal.email and user.email == principal.email:
-            user.email_verified = True
+    provider_name = provider.strip().lower()
+    sso_provider = sso_registry.get(provider_name)
+    if sso_provider is None:
+        raise HTTPException(status_code=400, detail='Unsupported provider')
 
-        display_name = principal.display_name or ''
-        if display_name:
-            user.display_name = display_name
+    try:
+        parsed_state = parse_sso_state(state)
+    except SsoStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    identity = AuthIdentity(
-        user_id=user.id,
-        provider=principal.provider,
-        provider_user_id=principal.provider_user_id,
-        email=principal.email,
-        display_name=principal.display_name,
-    )
-    db.add(identity)
+    if parsed_state['provider'] != provider_name:
+        raise HTTPException(status_code=400, detail='State provider mismatch')
+
+    try:
+        principal = sso_provider.exchange_code(code)
+    except SsoProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    principal = _normalize_principal_email(principal)
+    user = _get_or_create_user_by_sso(principal=principal, db=db)
+
     db.commit()
     db.refresh(user)
 
-    return TokenResponse(access_token=create_access_token(user.id))
+    access_token = create_access_token(user.id)
+    fragment = urlencode({'access_token': access_token, 'token_type': 'bearer'})
+    return RedirectResponse(url=f"{parsed_state['redirect']}#{fragment}")
 
 
 @router.get('/me', response_model=UserOut)
