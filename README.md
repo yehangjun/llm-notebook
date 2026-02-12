@@ -29,7 +29,13 @@ Single API backend MVP for AI information aggregation + bookmarks + notes + basi
 ./scripts/clean.sh
 ```
 
-4. Open docs:
+4. Run migrations manually (for existing DB volumes):
+
+```bash
+./scripts/migrate.sh
+```
+
+5. Open docs:
 
 - Frontend: `http://localhost:8000/`
 - Swagger: `http://localhost:8000/docs`
@@ -40,7 +46,10 @@ Single API backend MVP for AI information aggregation + bookmarks + notes + basi
 
 ## API (MVP)
 
-- `POST /auth/dev-login` dev phone login
+- `POST /auth/email/send-code` send email OTP (dev env returns debug code)
+- `POST /auth/email/verify-code` verify OTP and login
+- `GET /auth/sso/providers`
+- `POST /auth/sso/mock-login` mock SSO login for development
 - `GET /auth/me`
 - `GET /feed`
 - `POST /bookmarks/{article_id}`
@@ -58,7 +67,12 @@ PostgreSQL schema and demo seed data are auto-applied from:
 - `deploy/postgres/init/001_schema.sql`
 - `deploy/postgres/init/002_seed.sql`
 
+Incremental auth migration for existing volumes:
+
+- `deploy/postgres/migrations/001_auth_email_sso.sql`
+
 ## Notes
 
-- `dev-login` is for MVP verification only. Replace with SMS OTP + risk control before production.
+- Current MVP auth is `email OTP + mock SSO` for development-stage verification.
+- `phone` field is retained in user profile schema but is not collected in current flow.
 - Keep this as a modular monolith so each module can be split into microservices later.

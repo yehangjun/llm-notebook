@@ -13,13 +13,23 @@ const i18n = {
   zh: {
     pageTitle: 'AI Notebook MVP 前端',
     appTitle: 'AI Notebook MVP 前端',
-    appSubtitle: '用于开发登录、信息流、收藏和笔记的最小前端。',
+    appSubtitle: '用于邮箱验证码与 SSO 登录、信息流、收藏和笔记的最小前端。',
     uiLangLabel: '界面语言',
     loginTitle: '登录',
-    phonePlaceholder: '手机号（例如 13800138000）',
-    devLogin: '开发登录',
+    emailPlaceholder: '邮箱（例如 demo@example.com）',
+    sendCode: '发送验证码',
+    emailCodePlaceholder: '邮箱验证码',
+    verifyLogin: '验证并登录',
     logout: '退出登录',
+    ssoLabel: 'SSO（模拟）',
+    ssoSubjectPlaceholder: 'SSO Subject ID',
+    ssoEmailPlaceholder: 'SSO 邮箱（可选）',
+    ssoLogin: 'SSO 登录',
+    ssoSubjectRequired: '请输入 SSO Subject ID',
     notLoggedIn: '未登录',
+    codeSent: '验证码已发送',
+    debugCode: '开发验证码',
+    emailCodeRequired: '请输入邮箱和验证码',
     feedTitle: '信息流',
     all: '全部',
     english: '英文',
@@ -47,23 +57,36 @@ const i18n = {
     privateLabel: '私密',
     loginRequired: '需要先登录',
     tokenInvalid: '登录已失效，请重新登录',
-    phoneRequired: '请输入手机号',
+    emailRequired: '请输入邮箱',
     loginFailed: '登录失败',
+    sendCodeFailed: '发送验证码失败',
+    ssoLoginFailed: 'SSO 登录失败',
     titleContentRequired: '标题和内容必填',
     noteCreated: '笔记已创建',
     createFailed: '创建失败',
     loggedInAs: '已登录',
+    noEmail: '无邮箱',
   },
   en: {
     pageTitle: 'AI Notebook MVP Frontend',
     appTitle: 'AI Notebook MVP Frontend',
-    appSubtitle: 'Minimal frontend for dev login, feed, bookmarks, and notes.',
+    appSubtitle: 'Minimal frontend for email OTP/SSO login, feed, bookmarks, and notes.',
     uiLangLabel: 'UI Language',
     loginTitle: 'Login',
-    phonePlaceholder: 'Phone (e.g. 13800138000)',
-    devLogin: 'Dev Login',
+    emailPlaceholder: 'Email (e.g. demo@example.com)',
+    sendCode: 'Send Code',
+    emailCodePlaceholder: 'Email Code',
+    verifyLogin: 'Verify Login',
     logout: 'Logout',
+    ssoLabel: 'SSO (Mock)',
+    ssoSubjectPlaceholder: 'SSO Subject ID',
+    ssoEmailPlaceholder: 'Email for SSO (optional)',
+    ssoLogin: 'SSO Login',
+    ssoSubjectRequired: 'SSO Subject ID is required',
     notLoggedIn: 'Not logged in',
+    codeSent: 'Verification code sent',
+    debugCode: 'Dev code',
+    emailCodeRequired: 'Email and code are required',
     feedTitle: 'Feed',
     all: 'All',
     english: 'English',
@@ -91,12 +114,15 @@ const i18n = {
     privateLabel: 'private',
     loginRequired: 'Login required',
     tokenInvalid: 'Token invalid, please login again',
-    phoneRequired: 'Phone is required',
+    emailRequired: 'Email is required',
     loginFailed: 'Login failed',
+    sendCodeFailed: 'Send code failed',
+    ssoLoginFailed: 'SSO login failed',
     titleContentRequired: 'Title and content are required',
     noteCreated: 'Note created',
     createFailed: 'Create failed',
     loggedInAs: 'Logged in as',
+    noEmail: 'no email',
   },
 };
 
@@ -110,7 +136,8 @@ function formatDate(isoDate) {
 }
 
 function loggedInText(me) {
-  return `${t('loggedInAs')} ${me.display_name} (${me.phone})`;
+  const email = me.email || t('noEmail');
+  return `${t('loggedInAs')} ${me.display_name} (${email})`;
 }
 
 const el = {
@@ -119,9 +146,16 @@ const el = {
   appSubtitle: document.getElementById('appSubtitle'),
   uiLangLabel: document.getElementById('uiLangLabel'),
   loginTitle: document.getElementById('loginTitle'),
-  phone: document.getElementById('phone'),
-  loginBtn: document.getElementById('loginBtn'),
+  email: document.getElementById('email'),
+  sendCodeBtn: document.getElementById('sendCodeBtn'),
+  emailCode: document.getElementById('emailCode'),
+  verifyCodeBtn: document.getElementById('verifyCodeBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
+  ssoLabel: document.getElementById('ssoLabel'),
+  ssoProvider: document.getElementById('ssoProvider'),
+  ssoSubject: document.getElementById('ssoSubject'),
+  ssoEmail: document.getElementById('ssoEmail'),
+  ssoLoginBtn: document.getElementById('ssoLoginBtn'),
   loginStatus: document.getElementById('loginStatus'),
   feedTitle: document.getElementById('feedTitle'),
   lang: document.getElementById('lang'),
@@ -182,9 +216,15 @@ function applyTranslations() {
   el.uiLangLabel.textContent = t('uiLangLabel');
 
   el.loginTitle.textContent = t('loginTitle');
-  el.phone.placeholder = t('phonePlaceholder');
-  el.loginBtn.textContent = t('devLogin');
+  el.email.placeholder = t('emailPlaceholder');
+  el.sendCodeBtn.textContent = t('sendCode');
+  el.emailCode.placeholder = t('emailCodePlaceholder');
+  el.verifyCodeBtn.textContent = t('verifyLogin');
   el.logoutBtn.textContent = t('logout');
+  el.ssoLabel.textContent = t('ssoLabel');
+  el.ssoSubject.placeholder = t('ssoSubjectPlaceholder');
+  el.ssoEmail.placeholder = t('ssoEmailPlaceholder');
+  el.ssoLoginBtn.textContent = t('ssoLogin');
 
   el.feedTitle.textContent = t('feedTitle');
   const currentFeedLang = el.lang.value;
@@ -349,18 +389,44 @@ async function refreshMe() {
   }
 }
 
-async function doLogin() {
-  const phone = el.phone.value.trim();
-  if (!phone) {
-    setStatus(el.loginStatus, t('phoneRequired'), false);
+async function sendEmailCode() {
+  const email = el.email.value.trim();
+  if (!email) {
+    setStatus(el.loginStatus, t('emailRequired'), false);
     return;
   }
 
   try {
-    const out = await api('/auth/dev-login', {
+    const out = await api('/auth/email/send-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ email }),
+    });
+
+    let msg = `${t('codeSent')}`;
+    if (out.debug_code) {
+      msg = `${msg} (${t('debugCode')}: ${out.debug_code})`;
+      el.emailCode.value = out.debug_code;
+    }
+    setStatus(el.loginStatus, msg, true);
+  } catch (err) {
+    setStatus(el.loginStatus, `${t('sendCodeFailed')}: ${err.message}`, false);
+  }
+}
+
+async function verifyEmailCodeLogin() {
+  const email = el.email.value.trim();
+  const code = el.emailCode.value.trim();
+  if (!email || !code) {
+    setStatus(el.loginStatus, t('emailCodeRequired'), false);
+    return;
+  }
+
+  try {
+    const out = await api('/auth/email/verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
     });
     state.token = out.access_token;
     localStorage.setItem(tokenKey, state.token);
@@ -368,6 +434,31 @@ async function doLogin() {
     await Promise.all([loadBookmarks(), loadNotes()]);
   } catch (err) {
     setStatus(el.loginStatus, `${t('loginFailed')}: ${err.message}`, false);
+  }
+}
+
+async function mockSsoLogin() {
+  const provider = el.ssoProvider.value;
+  const provider_user_id = el.ssoSubject.value.trim();
+  const email = el.ssoEmail.value.trim() || el.email.value.trim() || null;
+
+  if (!provider_user_id) {
+    setStatus(el.loginStatus, t('ssoSubjectRequired'), false);
+    return;
+  }
+
+  try {
+    const out = await api('/auth/sso/mock-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, provider_user_id, email }),
+    });
+    state.token = out.access_token;
+    localStorage.setItem(tokenKey, state.token);
+    await refreshMe();
+    await Promise.all([loadBookmarks(), loadNotes()]);
+  } catch (err) {
+    setStatus(el.loginStatus, `${t('ssoLoginFailed')}: ${err.message}`, false);
   }
 }
 
@@ -437,7 +528,9 @@ async function boot() {
   applyTranslations();
 
   el.uiLang.onchange = onUiLangChange;
-  el.loginBtn.onclick = doLogin;
+  el.sendCodeBtn.onclick = sendEmailCode;
+  el.verifyCodeBtn.onclick = verifyEmailCodeLogin;
+  el.ssoLoginBtn.onclick = mockSsoLogin;
   el.logoutBtn.onclick = doLogout;
   el.loadFeedBtn.onclick = loadFeed;
   el.loadBookmarksBtn.onclick = loadBookmarks;

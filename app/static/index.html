@@ -178,10 +178,24 @@
 
       <div class="card">
         <h2 id="loginTitle">Login</h2>
-        <div class="row">
-          <input id="phone" placeholder="Phone (e.g. 13800138000)" value="13800138000" />
-          <button id="loginBtn">Dev Login</button>
+        <div class="row" style="margin-bottom: 8px">
+          <input id="email" placeholder="Email (e.g. demo@example.com)" value="demo@example.com" style="min-width: 250px; flex: 1" />
+          <button id="sendCodeBtn">Send Code</button>
+          <input id="emailCode" placeholder="Email Code" style="width: 140px" />
+          <button id="verifyCodeBtn">Verify Login</button>
           <button id="logoutBtn" class="secondary">Logout</button>
+        </div>
+        <div class="row">
+          <label id="ssoLabel" class="muted" for="ssoProvider">SSO (Mock)</label>
+          <select id="ssoProvider">
+            <option value="google">Google</option>
+            <option value="github">GitHub</option>
+            <option value="apple">Apple</option>
+            <option value="wechat">WeChat</option>
+          </select>
+          <input id="ssoSubject" placeholder="SSO Subject ID" value="demo-subject-001" style="min-width: 180px; flex: 1" />
+          <input id="ssoEmail" placeholder="Email for SSO (optional)" style="min-width: 220px; flex: 1" />
+          <button id="ssoLoginBtn" class="secondary">SSO Login</button>
           <span class="spacer"></span>
           <span id="loginStatus" class="status muted">Not logged in</span>
         </div>

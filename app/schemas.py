@@ -4,8 +4,27 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-class LoginRequest(BaseModel):
-    phone: str = Field(min_length=6, max_length=20)
+class SendEmailCodeRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+
+
+class SendEmailCodeResponse(BaseModel):
+    sent: bool
+    expires_in_seconds: int
+    debug_code: str | None = None
+
+
+class VerifyEmailCodeRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+    code: str = Field(min_length=4, max_length=12)
+    display_name: str | None = Field(default=None, max_length=100)
+
+
+class MockSsoLoginRequest(BaseModel):
+    provider: str = Field(min_length=2, max_length=50)
+    provider_user_id: str = Field(min_length=2, max_length=255)
+    email: str | None = Field(default=None, min_length=5, max_length=320)
+    display_name: str | None = Field(default=None, max_length=100)
 
 
 class TokenResponse(BaseModel):
@@ -15,7 +34,8 @@ class TokenResponse(BaseModel):
 
 class UserOut(BaseModel):
     id: UUID
-    phone: str
+    email: str | None
+    phone: str | None
     display_name: str
 
 

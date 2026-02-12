@@ -10,6 +10,9 @@ class Settings(BaseSettings):
 
     secret_key: str = 'change-me-in-production'
     access_token_expire_minutes: int = 10080
+    email_otp_expire_minutes: int = 10
+    email_otp_max_attempts: int = 5
+    mock_sso_enabled: bool = True
 
     database_url: str = 'postgresql+psycopg://mvp:mvp@db:5432/mvp'
     redis_url: str = 'redis://redis:6379/0'
