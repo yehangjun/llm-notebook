@@ -20,11 +20,12 @@ from app.schemas import (
     VerifyEmailCodeRequest,
 )
 from app.services.security import create_access_token
+from app.services.sso import SsoPrincipal, SsoProviderError, get_sso_registry
 
 router = APIRouter(prefix='/auth', tags=['auth'])
 
 EMAIL_PATTERN = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-SUPPORTED_SSO_PROVIDERS = ('google', 'github', 'apple', 'wechat')
+sso_registry = get_sso_registry()
 
 
 def _normalize_email(email: str) -> str:
@@ -129,7 +130,7 @@ def verify_email_code(payload: VerifyEmailCodeRequest, db: Session = Depends(get
 
 @router.get('/sso/providers')
 def sso_providers():
-    return {'providers': list(SUPPORTED_SSO_PROVIDERS)}
+    return {'providers': sso_registry.names()}
 
 
 @router.post('/sso/mock-login', response_model=TokenResponse)
@@ -137,13 +138,10 @@ def mock_sso_login(payload: MockSsoLoginRequest, db: Session = Depends(get_db)):
     if not settings.mock_sso_enabled:
         raise HTTPException(status_code=403, detail='Mock SSO disabled')
 
-    provider = payload.provider.strip().lower()
-    if provider not in SUPPORTED_SSO_PROVIDERS:
+    provider_name = payload.provider.strip().lower()
+    provider = sso_registry.get(provider_name)
+    if provider is None:
         raise HTTPException(status_code=400, detail='Unsupported provider')
-
-    provider_user_id = payload.provider_user_id.strip()
-    if not provider_user_id:
-        raise HTTPException(status_code=400, detail='provider_user_id is required')
 
     normalized_email = None
     if payload.email:
@@ -151,9 +149,33 @@ def mock_sso_login(payload: MockSsoLoginRequest, db: Session = Depends(get_db)):
         if not _is_valid_email(normalized_email):
             raise HTTPException(status_code=400, detail='Invalid email format')
 
+    requested_display_name = (payload.display_name or '').strip() or None
+    try:
+        principal = provider.authenticate(
+            provider_user_id=payload.provider_user_id,
+            email=normalized_email,
+            display_name=requested_display_name,
+        )
+    except SsoProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if principal.email:
+        principal_email = _normalize_email(principal.email)
+        if not _is_valid_email(principal_email):
+            raise HTTPException(status_code=400, detail='Provider returned invalid email')
+        principal = SsoPrincipal(
+            provider=principal.provider,
+            provider_user_id=principal.provider_user_id,
+            email=principal_email,
+            display_name=principal.display_name,
+        )
+
     identity = (
         db.query(AuthIdentity)
-        .filter(AuthIdentity.provider == provider, AuthIdentity.provider_user_id == provider_user_id)
+        .filter(
+            AuthIdentity.provider == principal.provider,
+            AuthIdentity.provider_user_id == principal.provider_user_id,
+        )
         .first()
     )
 
@@ -164,37 +186,37 @@ def mock_sso_login(payload: MockSsoLoginRequest, db: Session = Depends(get_db)):
         return TokenResponse(access_token=create_access_token(user.id))
 
     user = None
-    if normalized_email:
-        user = db.query(User).filter(User.email == normalized_email).first()
+    if principal.email:
+        user = db.query(User).filter(User.email == principal.email).first()
 
     if not user:
-        display_name = (payload.display_name or '').strip()
+        display_name = principal.display_name or ''
         if not display_name:
-            display_name = f'{provider}_{provider_user_id[-6:]}'
+            display_name = f'{principal.provider}_{principal.provider_user_id[-6:]}'
         user = User(
-            email=normalized_email,
+            email=principal.email,
             phone=None,
-            email_verified=bool(normalized_email),
+            email_verified=bool(principal.email),
             display_name=display_name,
         )
         db.add(user)
         db.flush()
     else:
-        if normalized_email and not user.email:
-            user.email = normalized_email
-        if normalized_email and user.email == normalized_email:
+        if principal.email and not user.email:
+            user.email = principal.email
+        if principal.email and user.email == principal.email:
             user.email_verified = True
 
-        display_name = (payload.display_name or '').strip()
+        display_name = principal.display_name or ''
         if display_name:
             user.display_name = display_name
 
     identity = AuthIdentity(
         user_id=user.id,
-        provider=provider,
-        provider_user_id=provider_user_id,
-        email=normalized_email,
-        display_name=(payload.display_name or '').strip() or None,
+        provider=principal.provider,
+        provider_user_id=principal.provider_user_id,
+        email=principal.email,
+        display_name=principal.display_name,
     )
     db.add(identity)
     db.commit()

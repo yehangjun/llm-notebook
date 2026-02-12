@@ -44,6 +44,11 @@ Single API backend MVP for AI information aggregation + bookmarks + notes + basi
 
 `.env` is created from `.env.example` on first run.
 
+Key auth configs:
+
+- `MOCK_SSO_ENABLED=true|false`
+- `MOCK_SSO_PROVIDERS=google,github,apple,wechat`
+
 ## API (MVP)
 
 - `POST /auth/email/send-code` send email OTP (dev env returns debug code)
@@ -74,5 +79,6 @@ Incremental auth migration for existing volumes:
 ## Notes
 
 - Current MVP auth is `email OTP + mock SSO` for development-stage verification.
+- Mock SSO is provider-pluggable via `app/services/sso.py` (`SsoProvider` + registry).
 - `phone` field is retained in user profile schema but is not collected in current flow.
 - Keep this as a modular monolith so each module can be split into microservices later.

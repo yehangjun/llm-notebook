@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     email_otp_expire_minutes: int = 10
     email_otp_max_attempts: int = 5
     mock_sso_enabled: bool = True
+    mock_sso_providers: str = 'google,github,apple,wechat'
 
     database_url: str = 'postgresql+psycopg://mvp:mvp@db:5432/mvp'
     redis_url: str = 'redis://redis:6379/0'
