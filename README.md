@@ -35,7 +35,19 @@ Single API backend MVP for AI information aggregation + bookmarks + notes + basi
 ./scripts/migrate.sh
 ```
 
-5. Open docs:
+5. Fill SSO redirect URLs with your base URL:
+
+```bash
+./scripts/setup_sso_env.sh https://your-domain.com
+```
+
+6. Check auth setup readiness:
+
+```bash
+./scripts/check_auth_setup.sh
+```
+
+7. Open docs:
 
 - Frontend: `http://localhost:8000/`
 - Swagger: `http://localhost:8000/docs`
