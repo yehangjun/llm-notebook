@@ -1,0 +1,1 @@
+ALTER TABLE users ALTER COLUMN ui_language SET DEFAULT 'zh';

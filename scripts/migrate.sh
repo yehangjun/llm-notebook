@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-docker-compose exec -T db psql -U mvp -d mvp < deploy/postgres/migrations/001_auth_email_sso.sql
+for f in deploy/postgres/migrations/*.sql; do
+  echo "applying $f"
+  docker-compose exec -T db psql -U mvp -d mvp < "$f"
+done
 
 echo 'migrations applied'

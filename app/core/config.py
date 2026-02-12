@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     email_otp_expire_minutes: int = 10
     email_otp_max_attempts: int = 5
     email_debug_code_enabled: bool = True
+    login_max_failures: int = 5
+    login_lock_minutes: int = 15
+    login_failure_window_minutes: int = 15
 
     smtp_host: str | None = None
     smtp_port: int = 587
@@ -22,6 +25,8 @@ class Settings(BaseSettings):
     smtp_use_ssl: bool = False
     smtp_from_email: str = 'no-reply@example.com'
     smtp_from_name: str = 'AI Notebook'
+    password_reset_expire_minutes: int = 30
+    password_reset_url_base: str = 'http://localhost:8000/'
 
     sso_state_expire_minutes: int = 10
     sso_success_redirect_url: str = 'http://localhost:8000/'

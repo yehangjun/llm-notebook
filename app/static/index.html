@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Notebook MVP Frontend</title>
+    <title>AI Notebook MVP</title>
     <style>
       :root {
         --bg: #f4f6fb;
@@ -16,10 +16,7 @@
         --danger: #b42318;
       }
 
-      * {
-        box-sizing: border-box;
-      }
-
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         padding: 24px;
@@ -28,13 +25,7 @@
         background: linear-gradient(160deg, #eef2ff, #f8fafc 45%, #ecfeff);
       }
 
-      .wrap {
-        max-width: 1100px;
-        margin: 0 auto;
-        display: grid;
-        gap: 16px;
-      }
-
+      .wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
       .card {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -42,44 +33,21 @@
         padding: 16px;
         box-shadow: 0 2px 8px rgba(16, 24, 40, 0.04);
       }
+      h1 { margin: 0; font-size: 24px; }
+      h2 { margin: 0 0 12px; font-size: 18px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .spacer { flex: 1; }
+      .hidden { display: none; }
 
-      h1 {
-        margin: 0;
-        font-size: 24px;
-      }
-
-      h2 {
-        margin: 0 0 12px;
-        font-size: 18px;
-      }
-
-      .row {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        align-items: center;
-      }
-
-      input,
-      textarea,
-      select {
+      input, textarea, select {
         padding: 10px 12px;
         border: 1px solid var(--line);
         border-radius: 8px;
         font-size: 14px;
         background: #fff;
       }
-
-      input,
-      select {
-        height: 40px;
-      }
-
-      textarea {
-        min-height: 110px;
-        width: 100%;
-        resize: vertical;
-      }
+      input, select { height: 40px; }
+      textarea { min-height: 110px; width: 100%; resize: vertical; }
 
       button {
         height: 40px;
@@ -91,159 +59,172 @@
         color: #fff;
         cursor: pointer;
       }
+      button:hover { background: var(--accent-hover); }
+      button.secondary { background: #eef2ff; color: #1d4ed8; }
+      button.secondary:hover { background: #e0e7ff; }
 
-      button:hover {
-        background: var(--accent-hover);
-      }
+      .muted { color: var(--muted); font-size: 13px; }
+      .status { font-size: 13px; }
+      .status.ok { color: #027a48; }
+      .status.err { color: var(--danger); }
 
-      button.secondary {
-        background: #eef2ff;
-        color: #1d4ed8;
-      }
+      .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+      .list { display: grid; gap: 10px; }
+      .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+      .item h3 { margin: 0 0 6px; font-size: 16px; }
+      .item p { margin: 0 0 8px; font-size: 14px; color: #344054; }
+      .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+      .tabs button.active { background: #0b57d0; color: #fff; }
 
-      button.secondary:hover {
-        background: #e0e7ff;
-      }
-
-      .muted {
-        color: var(--muted);
-        font-size: 13px;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: 2fr 1fr;
-        gap: 16px;
-      }
-
-      .list {
-        display: grid;
-        gap: 10px;
-      }
-
-      .item {
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 10px;
-      }
-
-      .item h3 {
-        margin: 0 0 6px;
-        font-size: 16px;
-      }
-
-      .item p {
-        margin: 0 0 8px;
-        font-size: 14px;
-        color: #344054;
-      }
-
-      .status {
-        font-size: 13px;
-      }
-
-      .status.ok {
-        color: #027a48;
-      }
-
-      .status.err {
-        color: var(--danger);
-      }
-
-      .spacer {
-        flex: 1;
-      }
-
-      @media (max-width: 900px) {
-        .grid {
-          grid-template-columns: 1fr;
-        }
-      }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
     <div class="wrap">
       <div class="card">
         <div class="row" style="margin-bottom: 8px">
-          <h1 id="appTitle">AI Notebook MVP Frontend</h1>
+          <h1 id="appTitle">AI Notebook MVP</h1>
           <span class="spacer"></span>
-          <label id="uiLangLabel" for="uiLang" class="muted">UI Language</label>
-          <select id="uiLang">
+          <label id="uiLangLabel" class="muted" for="uiLang">Language</label>
+          <select id="uiLang" style="width: 120px">
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+          </select>
+          <button id="authEntryBtn" class="secondary">Login / Register</button>
+        </div>
+        <p id="appSubtitle" class="muted">LLM knowledge feed, bookmarks and notes.</p>
+      </div>
+
+      <div id="homeView">
+        <div class="grid">
+          <div class="card">
+            <div class="row" style="margin-bottom: 10px">
+              <h2 id="feedTitle" style="margin: 0">Feed</h2>
+              <span class="spacer"></span>
+              <select id="lang">
+                <option value="">All</option>
+                <option value="en">EN</option>
+                <option value="zh">ZH</option>
+              </select>
+              <button id="loadFeedBtn" class="secondary">Reload Feed</button>
+            </div>
+            <div id="feed" class="list"></div>
+          </div>
+
+          <div class="card">
+            <div class="row" style="margin-bottom: 10px">
+              <h2 id="bookmarksTitle" style="margin: 0">My Bookmarks</h2>
+              <span class="spacer"></span>
+              <button id="loadBookmarksBtn" class="secondary">Reload</button>
+            </div>
+            <div id="bookmarks" class="list"></div>
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top: 16px">
+          <div class="card">
+            <h2 id="createNoteTitle">Create Note</h2>
+            <div class="row" style="margin-bottom: 8px">
+              <input id="noteArticleId" placeholder="Article ID (optional)" style="min-width: 330px; flex: 1" />
+              <input id="noteTitle" placeholder="Note title" style="min-width: 220px; flex: 1" />
+            </div>
+            <textarea id="noteContent" placeholder="Write note content..."></textarea>
+            <div class="row" style="margin-top: 8px">
+              <input id="noteTags" placeholder="Tags (comma separated)" style="min-width: 260px; flex: 1" />
+              <label class="muted"><input id="notePublic" type="checkbox" /> <span id="notePublicText">public</span></label>
+              <span class="spacer"></span>
+              <button id="createNoteBtn">Create Note</button>
+            </div>
+            <p id="noteStatus" class="status muted" style="margin-bottom: 0"></p>
+          </div>
+
+          <div class="card">
+            <div class="row" style="margin-bottom: 10px">
+              <h2 id="notesTitle" style="margin: 0">My Notes</h2>
+              <span class="spacer"></span>
+              <button id="loadNotesBtn" class="secondary">Reload</button>
+            </div>
+            <div id="notes" class="list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="authView" class="card hidden">
+        <div class="tabs">
+          <button id="tabLogin" class="active">Login</button>
+          <button id="tabRegister" class="secondary">Register</button>
+        </div>
+
+        <div id="loginPane">
+          <h2 id="loginTitle">Login</h2>
+          <div class="row" style="margin-bottom: 8px">
+            <input id="loginIdentifier" placeholder="ID or Email" style="min-width: 260px; flex: 1" />
+            <input id="loginPassword" type="password" placeholder="Password" style="min-width: 220px; flex: 1" />
+            <button id="loginBtn">Login</button>
+            <button id="backFromAuthBtn" class="secondary">Back</button>
+          </div>
+          <div class="row" style="margin-bottom: 8px">
+            <button id="forgotPasswordBtn" class="secondary">Forgot Password</button>
+          </div>
+          <p id="loginStatus" class="status muted">Not logged in</p>
+        </div>
+
+        <div id="registerPane" class="hidden">
+          <h2 id="registerTitle">Register</h2>
+          <div class="row" style="margin-bottom: 8px">
+            <input id="registerPublicId" placeholder="ID (required, unique)" style="min-width: 220px; flex: 1" />
+            <input id="registerEmail" placeholder="Email (required)" style="min-width: 260px; flex: 1" />
+          </div>
+          <div class="row" style="margin-bottom: 8px">
+            <input id="registerNickname" placeholder="Nickname (optional)" style="min-width: 220px; flex: 1" />
+            <input id="registerPassword" type="password" placeholder="Password (min 8 chars)" style="min-width: 220px; flex: 1" />
+          <select id="registerUiLang" style="width: 180px">
+              <option value="zh" selected>中文</option>
+              <option value="en">English</option>
+          </select>
+            <button id="registerBtn">Register</button>
+            <button id="backFromRegisterBtn" class="secondary">Back</button>
+          </div>
+          <p id="registerStatus" class="status muted"></p>
+        </div>
+      </div>
+
+      <div id="profileView" class="card hidden">
+        <h2 id="profileTitle">Profile</h2>
+        <div class="row" style="margin-bottom: 8px">
+          <input id="profilePublicId" disabled style="min-width: 220px; flex: 1" />
+          <input id="profileEmail" disabled style="min-width: 260px; flex: 1" />
+        </div>
+        <div class="row" style="margin-bottom: 8px">
+          <input id="profileNickname" placeholder="Nickname (optional)" style="min-width: 220px; flex: 1" />
+          <input id="profilePassword" type="password" placeholder="New password (optional, min 8 chars)" style="min-width: 220px; flex: 1" />
+          <select id="profileUiLang" style="width: 180px">
             <option value="zh">中文</option>
             <option value="en">English</option>
           </select>
         </div>
-        <p id="appSubtitle" class="muted">Minimal frontend for dev login, feed, bookmarks, and notes.</p>
-      </div>
-
-      <div class="card">
-        <h2 id="loginTitle">Login</h2>
-        <div class="row" style="margin-bottom: 8px">
-          <input id="email" placeholder="Email (e.g. demo@example.com)" value="demo@example.com" style="min-width: 250px; flex: 1" />
-          <button id="sendCodeBtn">Send Code</button>
-          <input id="emailCode" placeholder="Email Code" style="width: 140px" />
-          <button id="verifyCodeBtn">Verify Login</button>
-          <button id="logoutBtn" class="secondary">Logout</button>
-        </div>
         <div class="row">
-          <span id="ssoLabel" class="muted">SSO</span>
-          <button id="gmailSsoBtn" class="secondary">Login with Gmail</button>
-          <button id="wechatSsoBtn" class="secondary">Login with WeChat</button>
+          <button id="saveProfileBtn">Save Profile</button>
+          <button id="logoutBtn" class="secondary">Logout</button>
+          <button id="backFromProfileBtn" class="secondary">Back</button>
           <span class="spacer"></span>
-          <span id="loginStatus" class="status muted">Not logged in</span>
+          <span id="profileStatus" class="status muted"></span>
         </div>
       </div>
 
-      <div class="grid">
-        <div class="card">
-          <div class="row" style="margin-bottom: 10px">
-            <h2 id="feedTitle" style="margin: 0">Feed</h2>
-            <span class="spacer"></span>
-            <select id="lang">
-              <option value="">All</option>
-              <option value="en">EN</option>
-              <option value="zh">ZH</option>
-            </select>
-            <button id="loadFeedBtn" class="secondary">Reload Feed</button>
-          </div>
-          <div id="feed" class="list"></div>
+      <div id="resetView" class="card hidden">
+        <h2 id="resetTitle">Reset Password</h2>
+        <div class="row" style="margin-bottom: 8px">
+          <input id="resetEmail" placeholder="Email" style="min-width: 260px; flex: 1" />
+          <button id="sendResetBtn">Send Reset Email</button>
         </div>
-
-        <div class="card">
-          <div class="row" style="margin-bottom: 10px">
-            <h2 id="bookmarksTitle" style="margin: 0">My Bookmarks</h2>
-            <span class="spacer"></span>
-            <button id="loadBookmarksBtn" class="secondary">Reload</button>
-          </div>
-          <div id="bookmarks" class="list"></div>
+        <div class="row" style="margin-bottom: 8px">
+          <input id="resetToken" placeholder="Reset Token" style="min-width: 320px; flex: 1" />
+          <input id="resetNewPassword" type="password" placeholder="New Password (min 8 chars)" style="min-width: 220px; flex: 1" />
+          <button id="confirmResetBtn">Confirm Reset</button>
+          <button id="backFromResetBtn" class="secondary">Back</button>
         </div>
-      </div>
-
-      <div class="grid">
-        <div class="card">
-          <h2 id="createNoteTitle">Create Note</h2>
-          <div class="row" style="margin-bottom: 8px">
-            <input id="noteArticleId" placeholder="Article ID (optional)" style="min-width: 330px; flex: 1" />
-            <input id="noteTitle" placeholder="Note title" style="min-width: 220px; flex: 1" />
-          </div>
-          <textarea id="noteContent" placeholder="Write note content..."></textarea>
-          <div class="row" style="margin-top: 8px">
-            <input id="noteTags" placeholder="Tags (comma separated)" style="min-width: 260px; flex: 1" />
-            <label id="notePublicLabel" class="muted"><input id="notePublic" type="checkbox" /> <span id="notePublicText">public</span></label>
-            <span class="spacer"></span>
-            <button id="createNoteBtn">Create Note</button>
-          </div>
-          <p id="noteStatus" class="status muted" style="margin-bottom: 0"></p>
-        </div>
-
-        <div class="card">
-          <div class="row" style="margin-bottom: 10px">
-            <h2 id="notesTitle" style="margin: 0">My Notes</h2>
-            <span class="spacer"></span>
-            <button id="loadNotesBtn" class="secondary">Reload</button>
-          </div>
-          <div id="notes" class="list"></div>
-        </div>
+        <p id="resetStatus" class="status muted"></p>
       </div>
     </div>
 

@@ -59,15 +59,22 @@ Single API backend MVP for AI information aggregation + bookmarks + notes + basi
 Key auth configs:
 
 - `EMAIL_DEBUG_CODE_ENABLED=true|false`
+- `LOGIN_MAX_FAILURES / LOGIN_LOCK_MINUTES / LOGIN_FAILURE_WINDOW_MINUTES`
 - `SMTP_HOST / SMTP_PORT / SMTP_USERNAME / SMTP_PASSWORD`
+- `PASSWORD_RESET_EXPIRE_MINUTES / PASSWORD_RESET_URL_BASE`
 - `GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REDIRECT_URI`
 - `WECHAT_OAUTH_APP_ID / WECHAT_OAUTH_APP_SECRET / WECHAT_OAUTH_REDIRECT_URI`
 - `SSO_SUCCESS_REDIRECT_URL / SSO_ALLOWED_REDIRECT_HOSTS`
 
 ## API (MVP)
 
-- `POST /auth/email/send-code` send email OTP (dev env returns debug code)
-- `POST /auth/email/verify-code` verify OTP and login
+- `POST /auth/email/send-code` send email OTP (`purpose`: `register` or `login`)
+- `POST /auth/email/verify-code` verify OTP and complete register/login (`purpose`: `register` or `login`)
+- `POST /auth/register` register by `email + public_id + password`
+- `POST /auth/login` login by `ID or email + password`
+- `PATCH /auth/me/profile` update profile (`display_name/password/ui_language`)
+- `POST /auth/password/forgot` send password reset email
+- `POST /auth/password/reset` reset password by token
 - `GET /auth/sso/providers`
 - `GET /auth/sso/{provider}/start`
 - `GET /auth/sso/{provider}/callback`
@@ -91,10 +98,19 @@ PostgreSQL schema and demo seed data are auto-applied from:
 Incremental auth migration for existing volumes:
 
 - `deploy/postgres/migrations/001_auth_email_sso.sql`
+- `deploy/postgres/migrations/002_user_password_auth.sql`
+- `deploy/postgres/migrations/003_password_reset.sql`
+- `deploy/postgres/migrations/004_default_ui_language_zh.sql`
 
 ## Notes
 
-- Current auth is `email OTP + real OAuth SSO`.
+- Frontend auth uses password flow:
+  - unauthenticated top-right button shows `登录/注册`
+  - auth page has two tabs (`登录`/`注册`)
+  - profile page allows editing nickname/password/language and logout
+  - supports zh/en language switch and auto-applies user profile language after login
+  - default language is `zh` for new users and first-time UI
+- Login security: failed password attempts are rate-limited and temporary locked.
 - Supported SSO providers are `gmail` and `wechat`.
 - SSO provider integration is pluggable via `app/services/sso.py` (`SsoProvider` + registry).
 - `phone` field is retained in user profile schema but is not collected in current flow.

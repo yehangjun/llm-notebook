@@ -4,6 +4,9 @@ CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email VARCHAR(320) UNIQUE,
   phone VARCHAR(20) UNIQUE,
+  public_id VARCHAR(50) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NULL,
+  ui_language VARCHAR(10) NOT NULL DEFAULT 'zh',
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
   display_name VARCHAR(100) NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -88,7 +91,17 @@ CREATE TABLE IF NOT EXISTS auth_identities (
   UNIQUE (provider, provider_user_id)
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id),
+  token_hash VARCHAR(128) NOT NULL UNIQUE,
+  expires_at TIMESTAMP NOT NULL,
+  used_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notes_user_updated_at ON notes(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_email_otps_email_created ON email_otps(email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_created ON password_reset_tokens(user_id, created_at DESC);
