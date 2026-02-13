@@ -23,13 +23,36 @@ class UserRepository:
         stmt = select(User).where(or_(User.user_id == principal, User.email == principal))
         return self.db.scalar(stmt)
 
-    def create(self, *, user_id: str, email: str, password_hash: str, nickname: str | None, ui_language: str) -> User:
+    def list_users(self, *, keyword: str | None = None, offset: int = 0, limit: int = 50) -> list[User]:
+        stmt = select(User).order_by(User.created_at.desc()).offset(offset).limit(limit)
+        if keyword:
+            like = f"%{keyword}%"
+            stmt = (
+                select(User)
+                .where(or_(User.user_id.ilike(like), User.email.ilike(like), User.nickname.ilike(like)))
+                .order_by(User.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        return list(self.db.scalars(stmt))
+
+    def create(
+        self,
+        *,
+        user_id: str,
+        email: str,
+        password_hash: str,
+        nickname: str | None,
+        ui_language: str,
+        is_admin: bool = False,
+    ) -> User:
         user = User(
             user_id=user_id,
             email=email,
             password_hash=password_hash,
             nickname=nickname,
             ui_language=ui_language,
+            is_admin=is_admin,
         )
         self.db.add(user)
         self.db.flush()

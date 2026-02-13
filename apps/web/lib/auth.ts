@@ -3,6 +3,7 @@ export type UserPublic = {
   email: string;
   nickname: string | null;
   ui_language: string;
+  is_admin: boolean;
   created_at: string;
 };
 
@@ -49,7 +50,18 @@ export function getStoredUser(): UserPublic | null {
   const raw = localStorage.getItem(USER_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as UserPublic;
+    const parsed = JSON.parse(raw) as Partial<UserPublic>;
+    if (!parsed.user_id || !parsed.email || !parsed.ui_language || !parsed.created_at) {
+      return null;
+    }
+    return {
+      user_id: parsed.user_id,
+      email: parsed.email,
+      nickname: parsed.nickname ?? null,
+      ui_language: parsed.ui_language,
+      is_admin: Boolean(parsed.is_admin),
+      created_at: parsed.created_at,
+    };
   } catch {
     return null;
   }

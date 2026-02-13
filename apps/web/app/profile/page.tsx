@@ -126,6 +126,11 @@ export default function ProfilePage() {
             {error && <div className="error">{error}</div>}
             {success && <div className="success">{success}</div>}
             <div className="row">
+              {user.is_admin && (
+                <button className="btn secondary" type="button" onClick={() => router.push("/admin/users")}>
+                  管理系统
+                </button>
+              )}
               <button className="btn" type="submit">
                 保存
               </button>

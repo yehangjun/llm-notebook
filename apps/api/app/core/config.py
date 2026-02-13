@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     register_limit_per_hour: int = Field(default=20, validation_alias="REGISTER_LIMIT_PER_HOUR")
     forgot_password_cooldown_seconds: int = Field(default=60, validation_alias="FORGOT_PASSWORD_COOLDOWN_SECONDS")
 
+    admin_user_id: str = Field(default="admin", validation_alias="ADMIN_USER_ID")
+    admin_email: str = Field(default="admin@llm-notebook.local", validation_alias="ADMIN_EMAIL")
+    admin_password: str = Field(default="ChangeMe123!", validation_alias="ADMIN_PASSWORD")
+    admin_nickname: str = Field(default="系统管理员", validation_alias="ADMIN_NICKNAME")
+
 
 settings = Settings()
 ALLOWED_UI_LANGUAGES = {"zh-CN", "en-US"}

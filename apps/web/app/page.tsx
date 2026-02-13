@@ -1,10 +1,12 @@
 import AccountEntry from "../components/AccountEntry";
+import AdminEntry from "../components/AdminEntry";
 
 export default function Home() {
   return (
     <main className="page">
       <div className="container">
         <div className="topbar">
+          <AdminEntry />
           <AccountEntry />
         </div>
 

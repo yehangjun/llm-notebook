@@ -51,6 +51,7 @@ a {
 .topbar {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
   margin-bottom: 28px;
 }
 
@@ -162,6 +163,37 @@ a {
 .tab.active {
   background: var(--accent-soft);
   border-color: var(--accent);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 900px;
+}
+
+.admin-table th,
+.admin-table td {
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+  padding: 10px 8px;
+}
+
+.admin-table th {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.admin-table td input,
+.admin-table td select {
+  width: 100%;
+  min-width: 120px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 14px;
+  background: #fff;
 }
 
 @media (max-width: 640px) {

@@ -15,6 +15,8 @@
 - 忘记密码与重置密码
 - 登录失败限制（轻量风控）
 - 后端保留可插拔 SSO 接口（gmail/wechat），前端不展示入口
+- 系统初始化自动创建管理员账号（与普通用户同表）
+- 管理员登录后显示管理入口，支持用户账号管理
 
 ### 1.3 非目标
 - 不做原创内容平台
@@ -57,6 +59,7 @@ infra/
 - `password_hash`: VARCHAR(255)
 - `nickname`: VARCHAR(64)，可空，可修改
 - `ui_language`: VARCHAR(8)，默认 `zh-CN`，可选 `zh-CN`/`en-US`
+- `is_admin`: BOOLEAN，默认 `false`
 - `created_at`/`updated_at`: TIMESTAMPTZ
 
 约束：
@@ -97,6 +100,12 @@ infra/
 
 约束：
 - `(provider, provider_sub)` 唯一
+
+### 3.5 管理员初始化规则
+- 系统启动时执行管理员引导逻辑：
+  - 若 `ADMIN_USER_ID` 或 `ADMIN_EMAIL` 对应用户已存在，则确保其 `is_admin=true`
+  - 若均不存在，自动创建管理员账号
+- 管理员账号与普通用户共用 `users` 表和登录流程
 
 ## 4. 鉴权与风控策略
 
@@ -163,12 +172,24 @@ Redis Key：
 - `provider` 仅支持 `gmail` / `wechat`
 - V2 前端不展示入口按钮
 
+### 5.4 管理系统接口
+1. `GET /admin/users`
+- 权限：管理员
+- 参数：`keyword?`, `offset?`, `limit?`
+- 返回：用户列表（含 `user_id`, `email`, `nickname`, `ui_language`, `is_admin`, `created_at`）
+
+2. `PATCH /admin/users/{user_id}`
+- 权限：管理员
+- 可改字段：`nickname`, `ui_language`, `is_admin`
+- 约束：不允许当前登录管理员移除自己的管理员权限
+
 ## 6. 前端页面与交互
 
 ### 6.1 路由规划
 - `/`：首页（右上角账号入口）
 - `/auth`：认证页（登录/注册双 Tab）
 - `/profile`：个人资料页
+- `/admin/users`：管理系统用户管理页（管理员可见）
 - `/forgot-password`：忘记密码
 - `/reset-password?token=...`：重置密码
 
@@ -191,6 +212,13 @@ Redis Key：
 - 只读字段：`user_id`, `email`
 - 可编辑字段：`nickname`, `ui_language`
 - 操作按钮：保存、退出登录
+- 当 `is_admin=true` 时，额外显示“管理系统”入口按钮
+
+### 6.5 管理系统页交互
+- 仅管理员可访问；非管理员访问返回无权限提示
+- 支持用户搜索（ID/邮箱/昵称）
+- 支持编辑用户：昵称、界面语言、管理员标记
+- 保存单行后即时刷新列表
 
 ## 7. 邮件与通知
 
@@ -228,6 +256,7 @@ Redis Key：
 启动顺序：
 - `api` 依赖 `db`、`redis` 健康状态
 - 启动后自动执行数据库迁移
+- API 应用启动时执行管理员账号引导逻辑
 
 ## 11. 验收映射（SPEC 对齐）
 
@@ -240,3 +269,6 @@ Redis Key：
 - 支持忘记密码与重置密码全流程
 - 后端保留 SSO 路由与 provider 扩展，前端不展示入口
 - 忘记密码发件账号为 `llm_notebook@163.com`
+- 系统初始化会自动创建/提升管理员账号
+- 管理员登录后前端显示“管理系统”入口
+- 管理系统支持用户账号管理

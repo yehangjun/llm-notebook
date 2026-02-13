@@ -3,6 +3,7 @@
 根据 `SPEC.md` 实现的最小可用骨架，包含：
 - FastAPI 后端（注册/登录/退出、忘记密码/重置密码、个人资料、SSO 预留）
 - Next.js 前端（首页账号入口、认证页、资料页、忘记/重置密码页）
+- 管理系统（管理员初始化、管理入口、用户账号管理）
 - PostgreSQL + Redis + Docker Compose
 - Alembic 数据库迁移
 
@@ -36,6 +37,8 @@ docker compose -f infra/docker-compose.yml up --build
 - `/api/v1/auth/forgot-password`
 - `/api/v1/auth/reset-password`
 - `/api/v1/me` (GET/PATCH)
+- `/api/v1/admin/users` (GET)
+- `/api/v1/admin/users/{user_id}` (PATCH)
 - `/api/v1/auth/sso/{provider}/start`（预留）
 - `/api/v1/auth/sso/{provider}/callback`（预留）
 
@@ -56,3 +59,11 @@ alembic revision -m "your migration name"
 - 忘记密码发信账号默认配置为 `llm_notebook@163.com`。
 - 若未配置 SMTP，后端会跳过真实发信并写日志。
 - 数据库结构由 Alembic 版本管理，不再使用 `create_all` 自动建表。
+- 系统启动会自动确保管理员账号存在，默认读取以下环境变量：
+  - `ADMIN_USER_ID`
+  - `ADMIN_EMAIL`
+  - `ADMIN_PASSWORD`
+  - `ADMIN_NICKNAME`
+- 若未覆盖，默认管理员为：
+  - `ADMIN_USER_ID=admin`
+  - `ADMIN_PASSWORD=ChangeMe123!`（建议首登后立刻修改）
