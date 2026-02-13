@@ -1,13 +1,12 @@
-# LLM Notebook MVP SPEC
-
-本文档总结当前仓库的**需求、设计与实现状态**，目标是让 Codex 在新机器上可以按此文档复现同等功能。
+# LLM Notebook SPEC V2
 
 ## 1. 产品目标与边界
 
 ### 1.1 目标
-- 面向中文用户的 AI 信息聚合与学习笔记 MVP。
+- 面向中文用户的 AI 信息聚合与学习笔记。
 - 先做 Web 站点，支持账号体系、信息流、收藏、笔记、轻社交。
 - 当前重点是可邀请小范围用户试用的最小闭环。
+- V1版本已经验证了MVP，这个V2版本是个精简但是可正式使用的产品。
 
 ### 1.2 非目标（当前阶段）
 - 不做原创内容平台。
@@ -20,11 +19,6 @@
 - 数据库：PostgreSQL
 - 缓存/风控计数：Redis
 - 部署：Docker Compose（`db` + `redis` + `api`）
-
-关键文件：
-- `/Users/yehangjun/git/llm-notebook/docker-compose.yml`
-- `/Users/yehangjun/git/llm-notebook/app/main.py`
-- `/Users/yehangjun/git/llm-notebook/app/routers/*.py`
 
 ## 3. 认证与账号设计（当前版本）
 
