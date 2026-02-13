@@ -1,0 +1,175 @@
+:root {
+  --bg: #f8f6ef;
+  --paper: #fffdfa;
+  --ink: #1e1e22;
+  --muted: #5e5a63;
+  --line: #ded8cb;
+  --accent: #0b6b57;
+  --accent-soft: #d7efe8;
+  --danger: #ac2f2f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 8% 10%, #efe7d2 0%, transparent 30%),
+    radial-gradient(circle at 90% 5%, #dbeee7 0%, transparent 28%),
+    var(--bg);
+}
+
+a {
+  color: inherit;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 8px 30px rgba(18, 22, 18, 0.06);
+}
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 28px;
+}
+
+.account-btn {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.account-btn:hover {
+  border-color: var(--accent);
+}
+
+.hero h1 {
+  font-size: clamp(28px, 4vw, 48px);
+  margin: 0 0 8px;
+  letter-spacing: 0.02em;
+}
+
+.hero p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.form-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.field input,
+.field select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+  background: #fff;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  border: 1px solid var(--ink);
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn.secondary {
+  background: #fff;
+  color: var(--ink);
+}
+
+.btn.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.helper {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.success {
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.tab {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: #fff;
+  font-weight: 600;
+}
+
+.tab.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+}

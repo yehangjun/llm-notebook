@@ -1,0 +1,242 @@
+# LLM Notebook V2 设计文档（对齐 `SPEC.md`）
+
+## 1. 设计目标
+
+### 1.1 产品目标
+- 面向中文用户，提供 AI 信息聚合与学习笔记产品。
+- V2 在 V1 MVP 基础上，交付可邀请小规模用户试用的正式可用版本。
+- 首期以 Web 为主，覆盖账号体系、信息流、收藏、笔记、轻社交能力的基础框架。
+
+### 1.2 本阶段核心闭环
+- 账号注册与登录（密码制）
+- 首页账号入口与认证/个人资料跳转
+- 个人资料维护（昵称、语言）
+- 退出登录
+- 忘记密码与重置密码
+- 登录失败限制（轻量风控）
+- 后端保留可插拔 SSO 接口（gmail/wechat），前端不展示入口
+
+### 1.3 非目标
+- 不做原创内容平台
+- 不做复杂推荐算法和复杂运营后台
+- 不做生产级多租户和微服务拆分
+
+## 2. 总体架构
+
+### 2.1 技术选型
+- 前端：React + Next.js（App Router）+ TypeScript
+- 后端：FastAPI（Python）单体服务
+- 数据库：PostgreSQL
+- 缓存/风控：Redis
+- 邮件：SMTP（163 邮箱发信）
+- 部署：Docker Compose（`web` + `api` + `db` + `redis`）
+
+### 2.2 架构分层
+- `presentation`：页面、接口路由、参数校验
+- `application`：用例编排（注册、登录、忘记密码等）
+- `domain`：用户、会话、密码令牌等业务规则
+- `infrastructure`：DB、Redis、SMTP、SSO provider 实现
+
+### 2.3 单体模块拆分
+```text
+apps/
+  web/                  # Next.js
+  api/                  # FastAPI
+packages/
+  shared-types/         # 前后端共享类型（可选）
+infra/
+  docker-compose.yml
+```
+
+## 3. 账号与认证设计
+
+### 3.1 用户模型
+- `id`: UUID，主键
+- `user_id`: VARCHAR(32)，唯一，注册输入，不可修改
+- `email`: VARCHAR(255)，唯一，注册输入，不可修改
+- `password_hash`: VARCHAR(255)
+- `nickname`: VARCHAR(64)，可空，可修改
+- `ui_language`: VARCHAR(8)，默认 `zh-CN`，可选 `zh-CN`/`en-US`
+- `created_at`/`updated_at`: TIMESTAMPTZ
+
+约束：
+- `user_id` 规则：`^[a-zA-Z0-9_]{4,32}$`
+- `email` 标准格式校验且全局唯一
+
+### 3.2 会话模型
+- `user_sessions.id`: UUID
+- `user_sessions.user_id`: FK -> users.id
+- `refresh_token_hash`: VARCHAR(255)
+- `expires_at`: TIMESTAMPTZ
+- `revoked_at`: TIMESTAMPTZ，可空
+- `ip`/`user_agent`: 可空
+- `created_at`: TIMESTAMPTZ
+
+用途：
+- 支持退出登录（吊销当前 refresh token）
+- 预留多设备会话管理
+
+### 3.3 密码重置模型
+- `password_reset_tokens.id`: UUID
+- `user_id`: FK -> users.id
+- `token_hash`: VARCHAR(255)，唯一
+- `expires_at`: TIMESTAMPTZ
+- `used_at`: TIMESTAMPTZ，可空
+- `created_at`: TIMESTAMPTZ
+
+规则：
+- 令牌一次性使用
+- 超时或已用直接失效
+
+### 3.4 SSO 预留模型
+- `user_identities.id`: UUID
+- `user_id`: FK -> users.id
+- `provider`: `gmail` / `wechat`
+- `provider_sub`: provider 侧唯一标识
+- `created_at`: TIMESTAMPTZ
+
+约束：
+- `(provider, provider_sub)` 唯一
+
+## 4. 鉴权与风控策略
+
+### 4.1 Token 策略
+- Access Token：JWT，短时（建议 15 分钟）
+- Refresh Token：随机串，长时（建议 30 天），服务端仅存哈希
+- 刷新/退出时校验 `user_sessions` 状态，支持吊销
+
+### 4.2 登录失败限制
+Redis Key：
+- `auth:login:fail:{principal}:{ip}`：失败次数，TTL 15 分钟
+- `auth:login:lock:{principal}:{ip}`：锁定标记，TTL 15 分钟
+
+规则：
+- 15 分钟内失败达到 5 次触发锁定
+- 锁定期间拒绝登录
+- 登录成功后清理失败计数
+
+### 4.3 频率限制
+- 忘记密码：`auth:pwd_reset:cooldown:{email}`，TTL 60 秒
+- 注册限流：`auth:register:ip:{ip}`，TTL 1 小时，阈值建议 20 次/小时
+
+## 5. API 设计（`/api/v1`）
+
+### 5.1 认证接口
+1. `POST /auth/register`
+- 入参：`user_id`, `email`, `password`, `password_confirm`, `nickname?`, `ui_language?`
+- 逻辑：校验唯一性、密码一致性，创建用户并签发会话
+- 出参：用户信息 + token
+
+2. `POST /auth/login`
+- 入参：`principal`（user_id 或 email）, `password`
+- 逻辑：风控检查、账号校验、签发 token
+- 出参：用户信息 + token
+
+3. `POST /auth/logout`
+- 入参：当前 refresh token（Cookie 或 Header）
+- 逻辑：吊销会话
+- 出参：成功状态
+
+4. `POST /auth/forgot-password`
+- 入参：`email`
+- 逻辑：生成重置 token 并发送邮件（发信账号 `llm_notebook@163.com`）
+- 出参：统一成功响应（防用户枚举）
+
+5. `POST /auth/reset-password`
+- 入参：`token`, `new_password`, `new_password_confirm`
+- 逻辑：校验 token 有效性，更新密码，标记 token 为已使用
+- 出参：成功状态
+
+### 5.2 个人资料接口
+1. `GET /me`
+- 返回：`user_id`, `email`, `nickname`, `ui_language`, `created_at`
+
+2. `PATCH /me`
+- 可改：`nickname`, `ui_language`
+- 禁改：`user_id`, `email`
+
+### 5.3 SSO 预留接口
+- `GET /auth/sso/{provider}/start`
+- `GET /auth/sso/{provider}/callback`
+
+约束：
+- `provider` 仅支持 `gmail` / `wechat`
+- V2 前端不展示入口按钮
+
+## 6. 前端页面与交互
+
+### 6.1 路由规划
+- `/`：首页（右上角账号入口）
+- `/auth`：认证页（登录/注册双 Tab）
+- `/profile`：个人资料页
+- `/forgot-password`：忘记密码
+- `/reset-password?token=...`：重置密码
+
+### 6.2 首页账号入口规则
+- 未登录：按钮文案 `登录/注册`
+- 已登录：
+  - 若 `nickname` 有值且不等于 `user_id`，显示 `nickname`
+  - 否则显示 `user_id`
+
+点击行为：
+- 未登录 -> `/auth`
+- 已登录 -> `/profile`
+
+### 6.3 认证页交互
+- 登录 Tab：`principal + password`
+- 注册 Tab：`user_id + email + password + password_confirm + nickname + ui_language`
+- 公共能力：前端表单校验、服务端错误提示、忘记密码入口
+
+### 6.4 个人资料页交互
+- 只读字段：`user_id`, `email`
+- 可编辑字段：`nickname`, `ui_language`
+- 操作按钮：保存、退出登录
+
+## 7. 邮件与通知
+
+- 发信账号固定为：`llm_notebook@163.com`
+- 忘记密码邮件包含一次性重置链接：
+  - `https://{web_host}/reset-password?token={raw_token}`
+- 为避免信息泄露，忘记密码接口永远返回统一文案
+
+## 8. 安全设计
+
+- 密码哈希算法：`Argon2id`（优先）或 `bcrypt`
+- 重置 token 和 refresh token 入库前哈希
+- 登录失败与账号不存在返回统一错误
+- 关键接口开启 IP + 用户维度限流
+- 生产环境强制 HTTPS、开启安全响应头
+
+## 9. 可观测性与运维
+
+- 健康检查：`GET /healthz`
+- 日志字段：`request_id`, `user_id`, `ip`, `path`, `latency_ms`, `status_code`
+- 最低指标：
+  - 登录成功率/失败率
+  - 登录锁定触发次数
+  - 重置密码成功率
+  - 邮件发送失败率
+
+## 10. Docker Compose 方案
+
+服务：
+- `web`: Next.js
+- `api`: FastAPI + Uvicorn
+- `db`: PostgreSQL 16
+- `redis`: Redis 7
+
+启动顺序：
+- `api` 依赖 `db`、`redis` 健康状态
+- 启动后自动执行数据库迁移
+
+## 11. 验收映射（SPEC 对齐）
+
+- 首页右上角仅有一个账号入口，文案与跳转符合规则
+- 注册支持 `user_id` 与 `email` 双唯一
+- 登录支持 `user_id` 或 `email`
+- 个人资料页仅允许修改昵称与界面语言
+- 支持退出登录
+- 存在登录失败限制与锁定策略
+- 支持忘记密码与重置密码全流程
+- 后端保留 SSO 路由与 provider 扩展，前端不展示入口
+- 忘记密码发件账号为 `llm_notebook@163.com`
