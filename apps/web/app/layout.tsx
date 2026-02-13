@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import GlobalNav from "../components/GlobalNav";
 
 export const metadata: Metadata = {
-  title: "LLM Notebook V2",
-  description: "AI 信息聚合与学习笔记",
+  title: "Prism - Everything about AI",
+  description: "Prism：面向中文用户的 AI 信息聚合与学习笔记",
 };
 
 export default function RootLayout({
@@ -13,7 +14,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <GlobalNav />
+        <div className="app-content">{children}</div>
+      </body>
     </html>
   );
 }

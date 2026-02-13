@@ -1,8 +1,10 @@
-# LLM Notebook V2
+# Prism V2
+
+> Everything about AI
 
 根据 `SPEC.md` 实现的最小可用骨架，包含：
 - FastAPI 后端（注册/登录/退出、忘记密码/重置密码、个人资料、SSO 预留）
-- Next.js 前端（首页账号入口、认证页、资料页、忘记/重置密码页）
+- Next.js 前端（全局导航、首页品牌化设计、认证页、资料页、忘记/重置密码页）
 - 管理系统（管理员初始化、管理入口、用户账号管理）
 - PostgreSQL + Redis + Docker Compose
 - Alembic 数据库迁移
@@ -32,6 +34,7 @@ docker compose -f infra/docker-compose.yml up --build
 ## API 前缀
 
 - `/api/v1/auth/register`
+- `/api/v1/auth/send-register-email-code`
 - `/api/v1/auth/login`
 - `/api/v1/auth/logout`
 - `/api/v1/auth/forgot-password`
@@ -67,3 +70,7 @@ alembic revision -m "your migration name"
 - 若未覆盖，默认管理员为：
   - `ADMIN_USER_ID=admin`
   - `ADMIN_PASSWORD=ChangeMe123!`（建议首登后立刻修改）
+- 注册邮箱验证码相关环境变量：
+  - `REGISTER_EMAIL_CODE_TTL_SECONDS`
+  - `REGISTER_EMAIL_CODE_COOLDOWN_SECONDS`
+  - `REGISTER_EMAIL_CODE_MAX_ATTEMPTS`

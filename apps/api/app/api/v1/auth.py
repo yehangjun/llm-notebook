@@ -10,6 +10,7 @@ from app.schemas.auth import (
     LogoutRequest,
     RegisterRequest,
     ResetPasswordRequest,
+    SendRegisterEmailCodeRequest,
 )
 from app.services.auth_service import AuthService
 
@@ -46,6 +47,12 @@ def logout(payload: LogoutRequest, db: Session = Depends(get_db)):
 def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
     service = AuthService(db)
     return service.forgot_password(payload)
+
+
+@router.post("/send-register-email-code", response_model=GenericMessageResponse)
+def send_register_email_code(payload: SendRegisterEmailCodeRequest, db: Session = Depends(get_db)):
+    service = AuthService(db)
+    return service.send_register_email_code(payload)
 
 
 @router.post("/reset-password", response_model=GenericMessageResponse)

@@ -1,12 +1,13 @@
 :root {
-  --bg: #f8f6ef;
-  --paper: #fffdfa;
-  --ink: #1e1e22;
-  --muted: #5e5a63;
-  --line: #ded8cb;
-  --accent: #0b6b57;
-  --accent-soft: #d7efe8;
-  --danger: #ac2f2f;
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --text: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #1d4ed8;
+  --accent-2: #7c3aed;
+  --danger: #b91c1c;
+  --success: #047857;
 }
 
 * {
@@ -18,65 +19,215 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
-  color: var(--ink);
+  font-family: "Google Sans", "Noto Sans SC", "PingFang SC", "Segoe UI", sans-serif;
+  color: var(--text);
   background:
-    radial-gradient(circle at 8% 10%, #efe7d2 0%, transparent 30%),
-    radial-gradient(circle at 90% 5%, #dbeee7 0%, transparent 28%),
+    radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.12), transparent 30%),
+    radial-gradient(circle at 85% 10%, rgba(147, 51, 234, 0.1), transparent 30%),
+    radial-gradient(circle at 50% 85%, rgba(16, 185, 129, 0.08), transparent 35%),
     var(--bg);
 }
 
 a {
   color: inherit;
-}
-
-.page {
-  min-height: 100vh;
-  padding: 24px;
-}
-
-.card {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 8px 30px rgba(18, 22, 18, 0.06);
+  text-decoration: none;
 }
 
 .container {
-  max-width: 960px;
+  width: 100%;
+  max-width: 1080px;
   margin: 0 auto;
 }
 
-.topbar {
+.app-content {
+  padding-top: 84px;
+}
+
+.nav-shell {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+  background: rgba(248, 250, 252, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.nav {
+  height: 68px;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+}
+
+.nav-brand {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
-  margin-bottom: 28px;
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #dbeafe, #ede9fe);
+  border: 1px solid #bfdbfe;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.brand-text {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.nav-link {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  color: var(--text);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .account-btn {
   border: 1px solid var(--line);
-  background: var(--paper);
   border-radius: 999px;
-  padding: 10px 16px;
-  cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 14px;
+  font-size: 13px;
   font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
 }
 
 .account-btn:hover {
-  border-color: var(--accent);
+  border-color: #bfdbfe;
+}
+
+.page {
+  min-height: calc(100vh - 84px);
+  padding: 24px 20px 40px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.04);
+}
+
+.hero {
+  display: grid;
+  gap: 14px;
+  padding: 32px;
+}
+
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1e40af;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
 }
 
 .hero h1 {
-  font-size: clamp(28px, 4vw, 48px);
-  margin: 0 0 8px;
-  letter-spacing: 0.02em;
+  margin: 0;
+  font-size: clamp(34px, 6vw, 64px);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, #2563eb 0%, #7c3aed 55%, #db2777 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .hero p {
   margin: 0;
+  font-size: 17px;
   color: var(--muted);
+  max-width: 760px;
+  line-height: 1.7;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.feature-grid {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.feature-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.feature-card h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.feature-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.about {
+  margin-top: 18px;
+}
+
+.about h2 {
+  margin: 0 0 10px;
+}
+
+.about p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
 }
 
 .form-stack {
@@ -95,12 +246,14 @@ a {
 }
 
 .field input,
-.field select {
+.field select,
+form input,
+form select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: 15px;
+  font-size: 14px;
   background: #fff;
 }
 
@@ -111,18 +264,19 @@ a {
 }
 
 .btn {
-  border: 1px solid var(--ink);
+  border: 1px solid #111827;
   border-radius: 10px;
   padding: 10px 16px;
-  background: var(--ink);
+  background: #111827;
   color: #fff;
   font-weight: 600;
   cursor: pointer;
+  font-size: 14px;
 }
 
 .btn.secondary {
   background: #fff;
-  color: var(--ink);
+  color: #111827;
 }
 
 .btn.danger {
@@ -141,7 +295,7 @@ a {
 }
 
 .success {
-  color: var(--accent);
+  color: var(--success);
   font-size: 14px;
 }
 
@@ -161,8 +315,8 @@ a {
 }
 
 .tab.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: #eff6ff;
+  border-color: #bfdbfe;
 }
 
 .admin-table {
@@ -196,12 +350,40 @@ a {
   background: #fff;
 }
 
+@media (max-width: 900px) {
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-links {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
+  .app-content {
+    padding-top: 74px;
+  }
+
+  .nav {
+    height: 60px;
+    padding: 0 14px;
+  }
+
+  .brand-text {
+    font-size: 16px;
+  }
+
   .page {
-    padding: 16px;
+    padding: 16px 14px 28px;
   }
 
   .card {
     padding: 16px;
+    border-radius: 14px;
+  }
+
+  .hero {
+    padding: 18px;
   }
 }

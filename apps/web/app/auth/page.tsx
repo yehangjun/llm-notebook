@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 import { apiRequest } from "../../lib/api";
 import { AuthResponse, saveAuth } from "../../lib/auth";
 
 type Tab = "login" | "register";
+type GenericResponse = { message: string };
 
 export default function AuthPage() {
   const router = useRouter();
@@ -24,6 +25,18 @@ export default function AuthPage() {
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [nickname, setNickname] = useState("");
   const [language, setLanguage] = useState("zh-CN");
+  const [emailCode, setEmailCode] = useState("");
+  const [registerMessage, setRegisterMessage] = useState("");
+  const [sendCodeLoading, setSendCodeLoading] = useState(false);
+  const [sendCodeCountdown, setSendCodeCountdown] = useState(0);
+
+  useEffect(() => {
+    if (sendCodeCountdown <= 0) return;
+    const timer = window.setTimeout(() => {
+      setSendCodeCountdown((prev) => prev - 1);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [sendCodeCountdown]);
 
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -51,6 +64,7 @@ export default function AuthPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setRegisterMessage("");
 
     try {
       const data = await apiRequest<AuthResponse>("/auth/register", {
@@ -58,6 +72,7 @@ export default function AuthPage() {
         body: JSON.stringify({
           user_id: userId,
           email,
+          email_code: emailCode,
           password,
           password_confirm: passwordConfirm,
           nickname,
@@ -70,6 +85,30 @@ export default function AuthPage() {
       setError(err instanceof Error ? err.message : "注册失败");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSendEmailCode() {
+    if (!email.trim()) {
+      setError("请先填写邮箱");
+      return;
+    }
+
+    setSendCodeLoading(true);
+    setError("");
+    setRegisterMessage("");
+
+    try {
+      const data = await apiRequest<GenericResponse>("/auth/send-register-email-code", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      setRegisterMessage(data.message);
+      setSendCodeCountdown(60);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "发送验证码失败");
+    } finally {
+      setSendCodeLoading(false);
     }
   }
 
@@ -134,7 +173,37 @@ export default function AuthPage() {
               </div>
               <div className="field">
                 <label htmlFor="email">邮箱</label>
-                <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                <div className="row">
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    style={{ flex: 1, minWidth: 220 }}
+                    required
+                  />
+                  <button
+                    className="btn secondary"
+                    type="button"
+                    onClick={handleSendEmailCode}
+                    disabled={sendCodeLoading || sendCodeCountdown > 0}
+                  >
+                    {sendCodeLoading
+                      ? "发送中..."
+                      : sendCodeCountdown > 0
+                        ? `${sendCodeCountdown}s 后重试`
+                        : "发送验证码"}
+                  </button>
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="email-code">邮箱验证码</label>
+                <input
+                  id="email-code"
+                  value={emailCode}
+                  onChange={(e) => setEmailCode(e.target.value)}
+                  required
+                />
               </div>
               <div className="field">
                 <label htmlFor="password">密码</label>
@@ -167,6 +236,7 @@ export default function AuthPage() {
                   <option value="en-US">English</option>
                 </select>
               </div>
+              {registerMessage && <div className="success">{registerMessage}</div>}
               {error && <div className="error">{error}</div>}
               <button className="btn" type="submit" disabled={loading}>
                 {loading ? "提交中..." : "注册"}

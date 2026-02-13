@@ -10,7 +10,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = Field(default="llm-notebook", validation_alias="APP_NAME")
+    app_name: str = Field(default="prism", validation_alias="APP_NAME")
     app_env: str = Field(default="dev", validation_alias="APP_ENV")
     app_port: int = Field(default=8000, validation_alias="APP_PORT")
 
@@ -40,6 +40,12 @@ class Settings(BaseSettings):
 
     register_limit_per_hour: int = Field(default=20, validation_alias="REGISTER_LIMIT_PER_HOUR")
     forgot_password_cooldown_seconds: int = Field(default=60, validation_alias="FORGOT_PASSWORD_COOLDOWN_SECONDS")
+    register_email_code_ttl_seconds: int = Field(default=600, validation_alias="REGISTER_EMAIL_CODE_TTL_SECONDS")
+    register_email_code_cooldown_seconds: int = Field(
+        default=60,
+        validation_alias="REGISTER_EMAIL_CODE_COOLDOWN_SECONDS",
+    )
+    register_email_code_max_attempts: int = Field(default=5, validation_alias="REGISTER_EMAIL_CODE_MAX_ATTEMPTS")
 
     admin_user_id: str = Field(default="admin", validation_alias="ADMIN_USER_ID")
     admin_email: str = Field(default="admin@llm-notebook.local", validation_alias="ADMIN_EMAIL")

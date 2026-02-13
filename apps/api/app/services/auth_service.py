@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
@@ -26,6 +27,7 @@ from app.schemas.auth import (
     LogoutRequest,
     RegisterRequest,
     ResetPasswordRequest,
+    SendRegisterEmailCodeRequest,
     TokenPayload,
 )
 from app.schemas.user import UserPublic
@@ -33,6 +35,7 @@ from app.schemas.user import UserPublic
 
 GENERIC_LOGIN_ERROR = "账号或密码错误"
 GENERIC_FORGOT_RESPONSE = "如果邮箱存在，我们已发送重置邮件"
+REGISTER_CODE_SENT_RESPONSE = "验证码已发送，请查收邮箱"
 
 
 class AuthService:
@@ -60,6 +63,7 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ID 已存在")
         if self.user_repo.get_by_email(email):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邮箱已存在")
+        self._verify_and_consume_register_email_code(email, payload.email_code)
 
         user = self.user_repo.create(
             user_id=user_id,
@@ -120,6 +124,37 @@ class AuthService:
 
         self.mailer.send_password_reset(user.email, raw_token)
         return GenericMessageResponse(message=GENERIC_FORGOT_RESPONSE)
+
+    def send_register_email_code(self, payload: SendRegisterEmailCodeRequest) -> GenericMessageResponse:
+        email = payload.email.lower().strip()
+
+        if self.user_repo.get_by_email(email):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邮箱已存在")
+
+        cooldown_key = f"auth:register:email_code:cooldown:{email}"
+        allowed = self.redis.set(
+            cooldown_key,
+            "1",
+            nx=True,
+            ex=settings.register_email_code_cooldown_seconds,
+        )
+        if not allowed:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="验证码发送过于频繁，请稍后再试")
+
+        code = self._generate_register_email_code()
+        code_key = self._register_email_code_key(email)
+
+        self.redis.hset(
+            code_key,
+            mapping={
+                "code_hash": hash_token(code),
+                "attempts": "0",
+            },
+        )
+        self.redis.expire(code_key, settings.register_email_code_ttl_seconds)
+
+        self.mailer.send_register_verification_code(email, code)
+        return GenericMessageResponse(message=REGISTER_CODE_SENT_RESPONSE)
 
     def reset_password(self, payload: ResetPasswordRequest) -> GenericMessageResponse:
         if payload.new_password != payload.new_password_confirm:
@@ -196,3 +231,29 @@ class AuthService:
 
         if count > settings.register_limit_per_hour:
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="注册过于频繁，请稍后再试")
+
+    def _register_email_code_key(self, email: str) -> str:
+        return f"auth:register:email_code:{email}"
+
+    def _generate_register_email_code(self) -> str:
+        return f"{secrets.randbelow(1_000_000):06d}"
+
+    def _verify_and_consume_register_email_code(self, email: str, email_code: str) -> None:
+        code_key = self._register_email_code_key(email)
+        state = self.redis.hgetall(code_key)
+        if not state:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="邮箱验证码无效或已过期")
+
+        code_hash = state.get("code_hash")
+        attempts = int(state.get("attempts", "0"))
+        if attempts >= settings.register_email_code_max_attempts:
+            self.redis.delete(code_key)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="邮箱验证码无效或已过期")
+
+        if hash_token(email_code.strip()) != code_hash:
+            attempts = self.redis.hincrby(code_key, "attempts", 1)
+            if attempts >= settings.register_email_code_max_attempts:
+                self.redis.delete(code_key)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="邮箱验证码错误")
+
+        self.redis.delete(code_key)

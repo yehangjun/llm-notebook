@@ -6,6 +6,7 @@ from app.schemas.user import UserPublic
 class RegisterRequest(BaseModel):
     user_id: str = Field(min_length=4, max_length=32, pattern=r"^[a-zA-Z0-9_]{4,32}$")
     email: EmailStr
+    email_code: str = Field(min_length=4, max_length=16)
     password: str = Field(min_length=8, max_length=128)
     password_confirm: str
     nickname: str | None = Field(default=None, max_length=64)
@@ -22,6 +23,10 @@ class LogoutRequest(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class SendRegisterEmailCodeRequest(BaseModel):
     email: EmailStr
 
 
