@@ -7,6 +7,7 @@ from app.api.deps import get_current_admin_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import GenericMessageResponse
+from app.schemas.feed import RefreshAggregatesResponse
 from app.schemas.note import AdminNoteListResponse
 from app.schemas.user import AdminUpdateUserRequest, AdminUserItem, AdminUserListResponse
 from app.services.admin_service import AdminService
@@ -92,3 +93,12 @@ def restore_note(
 ):
     service = AdminService(db)
     return service.restore_note(note_id=note_id)
+
+
+@router.post("/aggregates/refresh", response_model=RefreshAggregatesResponse)
+def refresh_aggregates(
+    _: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    service = AdminService(db)
+    return service.refresh_aggregates()

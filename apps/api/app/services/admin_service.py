@@ -13,8 +13,10 @@ from app.repositories.note_repo import NoteRepository
 from app.repositories.session_repo import SessionRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import GenericMessageResponse
+from app.schemas.feed import RefreshAggregatesResponse
 from app.schemas.note import AdminNoteItem
 from app.schemas.user import AdminUpdateUserRequest
+from app.services.aggregation_service import AggregationService
 
 
 class AdminService:
@@ -130,6 +132,11 @@ class AdminService:
                 detail="该用户已存在同一归一化链接的有效笔记，无法恢复",
             ) from exc
         return GenericMessageResponse(message="笔记已恢复")
+
+    def refresh_aggregates(self) -> RefreshAggregatesResponse:
+        service = AggregationService(self.db)
+        service.ensure_preset_sources()
+        return service.refresh_active_items()
 
     def _build_admin_note_item(self, note: Note) -> AdminNoteItem:
         owner_user_id = note.user.user_id if note.user else ""

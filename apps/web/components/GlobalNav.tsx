@@ -18,18 +18,12 @@ export default function GlobalNav() {
         </Link>
 
         <div className="nav-links" aria-label="global-navigation">
-          <Link className={pathname === "/" ? "nav-link active" : "nav-link"} href="/">
-            首页
-          </Link>
           <Link className={pathname?.startsWith("/notes") ? "nav-link active" : "nav-link"} href="/notes">
             笔记
           </Link>
-          <a className="nav-link" href="/#discover">
-            Discover
-          </a>
-          <a className="nav-link" href="/#about">
-            About
-          </a>
+          <Link className={pathname?.startsWith("/feed") ? "nav-link active" : "nav-link"} href="/feed">
+            广场
+          </Link>
         </div>
 
         <div className="nav-actions">

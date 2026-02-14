@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,8 +27,9 @@ class Note(Base):
     source_url_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     source_domain: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     source_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tags_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     note_body_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", index=True)
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="public", index=True)
     analysis_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
     analysis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

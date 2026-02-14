@@ -13,7 +13,8 @@ export default function NewNotePage() {
   const router = useRouter();
   const [sourceUrl, setSourceUrl] = useState("");
   const [noteBody, setNoteBody] = useState("");
-  const [visibility, setVisibility] = useState<Visibility>("private");
+  const [tagInput, setTagInput] = useState("");
+  const [visibility, setVisibility] = useState<Visibility>("public");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -37,6 +38,7 @@ export default function NewNotePage() {
             source_url: sourceUrl,
             visibility,
             note_body_md: noteBody,
+            tags: parseTags(tagInput),
           }),
         },
         true,
@@ -82,6 +84,18 @@ export default function NewNotePage() {
               </select>
             </div>
             <div className="field">
+              <label htmlFor="tags">标签（可选）</label>
+              <input
+                id="tags"
+                placeholder="例如：openai,agent,rag"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+              />
+              <div className="helper" style={{ marginTop: 6 }}>
+                使用英文逗号或空格分隔，支持小写字母/数字/下划线/中划线。
+              </div>
+            </div>
+            <div className="field">
               <label htmlFor="note-body">学习心得（可选）</label>
               <textarea
                 id="note-body"
@@ -100,4 +114,12 @@ export default function NewNotePage() {
       </div>
     </main>
   );
+}
+
+function parseTags(input: string): string[] {
+  const chunks = input
+    .split(/[,\s，]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return [...new Set(chunks)];
 }

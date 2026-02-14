@@ -21,6 +21,7 @@ class NoteRepository:
         source_url_normalized: str,
         source_domain: str,
         source_title: str | None,
+        tags: list[str],
         note_body_md: str,
         visibility: str,
     ) -> Note:
@@ -30,6 +31,7 @@ class NoteRepository:
             source_url_normalized=source_url_normalized,
             source_domain=source_domain,
             source_title=source_title,
+            tags_json=tags,
             note_body_md=note_body_md,
             visibility=visibility,
             analysis_status="pending",

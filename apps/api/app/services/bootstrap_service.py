@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.security import get_password_hash
 from app.db import base as _db_models  # noqa: F401
 from app.repositories.user_repo import UserRepository
+from app.services.aggregation_service import AggregationService
 
 logger = logging.getLogger(__name__)
 
@@ -52,3 +53,6 @@ class BootstrapService:
         )
         self.db.commit()
         logger.info("bootstrap created admin account", extra={"user_id": user.user_id, "email": user.email})
+
+    def ensure_preset_sources(self) -> None:
+        AggregationService(self.db).ensure_preset_sources()

@@ -30,6 +30,8 @@ from app.schemas.note import (
 
 ALLOWED_VISIBILITY = {"private", "public"}
 ALLOWED_ANALYSIS_STATUS = {"pending", "running", "succeeded", "failed"}
+MAX_NOTE_TAGS = 8
+MAX_NOTE_TAG_LENGTH = 24
 WECHAT_HOST = "mp.weixin.qq.com"
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
 YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
@@ -53,6 +55,7 @@ class NoteService:
         self._enforce_create_limit(user.id)
         visibility = self._validate_visibility(payload.visibility)
         note_body_md = self._normalize_note_body(payload.note_body_md)
+        tags = self._normalize_tags(payload.tags)
         source_url, source_url_normalized, source_domain = self._normalize_source_url(payload.source_url)
 
         existing = self.note_repo.get_by_user_and_normalized_url(
@@ -72,6 +75,7 @@ class NoteService:
             source_url_normalized=source_url_normalized,
             source_domain=source_domain,
             source_title=None,
+            tags=tags,
             note_body_md=note_body_md,
             visibility=visibility,
         )
@@ -120,6 +124,9 @@ class NoteService:
         if payload.visibility is not None:
             note.visibility = self._validate_visibility(payload.visibility)
             changed = True
+        if payload.tags is not None:
+            note.tags_json = self._normalize_tags(payload.tags)
+            changed = True
 
         if not changed:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未提供可更新字段")
@@ -160,6 +167,7 @@ class NoteService:
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
             source_title=note.source_title,
+            tags=note.tags_json or [],
             note_body_md=note.note_body_md,
             analysis_status=note.analysis_status,
             created_at=note.created_at,
@@ -173,6 +181,7 @@ class NoteService:
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
             source_title=note.source_title,
+            tags=note.tags_json or [],
             visibility=note.visibility,
             analysis_status=note.analysis_status,
             updated_at=note.updated_at,
@@ -185,6 +194,7 @@ class NoteService:
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
             source_title=note.source_title,
+            tags=note.tags_json or [],
             note_body_md=note.note_body_md,
             visibility=note.visibility,
             analysis_status=note.analysis_status,
@@ -427,6 +437,33 @@ class NoteService:
                 detail=f"学习心得长度不能超过 {settings.note_body_max_chars} 字符",
             )
         return note_body
+
+    def _normalize_tags(self, values: list[str] | None) -> list[str]:
+        if not values:
+            return []
+        tags: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            tag = value.strip().lower()
+            if not tag:
+                continue
+            if len(tag) > MAX_NOTE_TAG_LENGTH:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"标签长度不能超过 {MAX_NOTE_TAG_LENGTH} 字符",
+                )
+            if not re.fullmatch(r"[a-z0-9_-]+", tag):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="标签仅支持字母数字下划线和中划线")
+            if tag in seen:
+                continue
+            seen.add(tag)
+            tags.append(tag)
+            if len(tags) > MAX_NOTE_TAGS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"标签数量不能超过 {MAX_NOTE_TAGS} 个",
+                )
+        return tags
 
     def _validate_visibility(self, value: str) -> str:
         visibility = value.strip().lower()

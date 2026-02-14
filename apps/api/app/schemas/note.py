@@ -21,6 +21,7 @@ class NoteListItem(BaseModel):
     source_url: str
     source_domain: str
     source_title: str | None
+    tags: list[str] = Field(default_factory=list)
     visibility: str
     analysis_status: str
     updated_at: datetime
@@ -31,6 +32,7 @@ class NoteDetail(BaseModel):
     source_url: str
     source_domain: str
     source_title: str | None
+    tags: list[str] = Field(default_factory=list)
     note_body_md: str
     visibility: str
     analysis_status: str
@@ -45,6 +47,7 @@ class PublicNoteDetail(BaseModel):
     source_url: str
     source_domain: str
     source_title: str | None
+    tags: list[str] = Field(default_factory=list)
     note_body_md: str
     analysis_status: str
     created_at: datetime
@@ -76,13 +79,15 @@ class AdminNoteListResponse(BaseModel):
 
 class CreateNoteRequest(BaseModel):
     source_url: str = Field(min_length=8, max_length=2048)
-    visibility: str = Field(default="private")
+    visibility: str = Field(default="public")
     note_body_md: str | None = None
+    tags: list[str] | None = None
 
 
 class UpdateNoteRequest(BaseModel):
     note_body_md: str | None = None
     visibility: str | None = None
+    tags: list[str] | None = None
 
 
 class CreateNoteResponse(BaseModel):

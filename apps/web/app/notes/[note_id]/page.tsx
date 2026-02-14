@@ -17,6 +17,7 @@ export default function NoteDetailPage() {
 
   const [note, setNote] = useState<NoteDetail | null>(null);
   const [noteBody, setNoteBody] = useState("");
+  const [tagInput, setTagInput] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("private");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -43,6 +44,7 @@ export default function NoteDetailPage() {
       setNote(data);
       setNoteBody(data.note_body_md);
       setVisibility(data.visibility);
+      setTagInput(data.tags.join(", "));
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {
@@ -63,11 +65,13 @@ export default function NoteDetailPage() {
           body: JSON.stringify({
             note_body_md: noteBody,
             visibility,
+            tags: parseTags(tagInput),
           }),
         },
         true,
       );
       setNote(data);
+      setTagInput(data.tags.join(", "));
       setSuccess("保存成功");
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
@@ -176,6 +180,15 @@ export default function NoteDetailPage() {
               <strong>状态：</strong>
               <span className={`pill status-${note.analysis_status}`}>{renderStatus(note.analysis_status)}</span>
             </div>
+            {!!note.tags.length && (
+              <div className="row">
+                {note.tags.map((item) => (
+                  <span key={`${note.id}-${item}`} className="pill">
+                    #{item}
+                  </span>
+                ))}
+              </div>
+            )}
             {note.analysis_error && <div className="error">{note.analysis_error}</div>}
           </div>
 
@@ -208,6 +221,15 @@ export default function NoteDetailPage() {
                 <option value="private">私有</option>
                 <option value="public">公开</option>
               </select>
+            </div>
+            <div className="field">
+              <label htmlFor="tags">标签（可选）</label>
+              <input
+                id="tags"
+                placeholder="例如：openai,agent,rag"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+              />
             </div>
             {note.visibility === "public" && (
               <div className="helper">
@@ -243,4 +265,12 @@ function renderStatus(status: NoteDetail["analysis_status"]): string {
   if (status === "running") return "分析中";
   if (status === "succeeded") return "成功";
   return "失败";
+}
+
+function parseTags(input: string): string[] {
+  const chunks = input
+    .split(/[,\s，]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return [...new Set(chunks)];
 }

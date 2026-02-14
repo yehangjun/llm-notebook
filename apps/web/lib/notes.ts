@@ -15,6 +15,7 @@ export type NoteListItem = {
   source_url: string;
   source_domain: string;
   source_title: string | null;
+  tags: string[];
   visibility: "private" | "public";
   analysis_status: "pending" | "running" | "succeeded" | "failed";
   updated_at: string;
@@ -25,6 +26,7 @@ export type NoteDetail = {
   source_url: string;
   source_domain: string;
   source_title: string | null;
+  tags: string[];
   note_body_md: string;
   visibility: "private" | "public";
   analysis_status: "pending" | "running" | "succeeded" | "failed";
@@ -39,6 +41,7 @@ export type PublicNoteDetail = {
   source_url: string;
   source_domain: string;
   source_title: string | null;
+  tags: string[];
   note_body_md: string;
   analysis_status: "pending" | "running" | "succeeded" | "failed";
   created_at: string;

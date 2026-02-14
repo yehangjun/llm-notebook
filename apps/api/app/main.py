@@ -21,7 +21,9 @@ app.add_middleware(
 def on_startup() -> None:
     db = SessionLocal()
     try:
-        BootstrapService(db).ensure_admin_account()
+        bootstrap = BootstrapService(db)
+        bootstrap.ensure_admin_account()
+        bootstrap.ensure_preset_sources()
     finally:
         db.close()
 
