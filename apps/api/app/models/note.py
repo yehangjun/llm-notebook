@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -10,7 +10,16 @@ from app.models.base import Base
 
 class Note(Base):
     __tablename__ = "notes"
-    __table_args__ = (UniqueConstraint("user_id", "source_url_normalized", name="uq_notes_user_url"),)
+    __table_args__ = (
+        Index(
+            "uq_notes_user_url_active",
+            "user_id",
+            "source_url_normalized",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
+        Index("ix_notes_is_deleted", "is_deleted"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
@@ -22,6 +31,8 @@ class Note(Base):
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", index=True)
     analysis_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
     analysis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

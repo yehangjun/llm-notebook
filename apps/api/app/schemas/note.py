@@ -56,6 +56,21 @@ class NoteListResponse(BaseModel):
     notes: list[NoteListItem]
 
 
+class AdminNoteItem(BaseModel):
+    id: UUID
+    owner_user_id: str
+    source_url: str
+    source_domain: str
+    source_title: str | None
+    visibility: str
+    analysis_status: str
+    updated_at: datetime
+
+
+class AdminNoteListResponse(BaseModel):
+    notes: list[AdminNoteItem]
+
+
 class CreateNoteRequest(BaseModel):
     source_url: str = Field(min_length=8, max_length=2048)
     visibility: str = Field(default="private")

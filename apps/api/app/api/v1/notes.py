@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
+from app.schemas.auth import GenericMessageResponse
 from app.schemas.note import (
     CreateNoteRequest,
     CreateNoteResponse,
@@ -85,3 +86,13 @@ def reanalyze_note(
 ):
     service = NoteService(db)
     return service.reanalyze(user=current_user, note_id=note_id)
+
+
+@router.delete("/{note_id}", response_model=GenericMessageResponse)
+def delete_note(
+    note_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    service = NoteService(db)
+    return service.delete_note(user=current_user, note_id=note_id)

@@ -1,10 +1,12 @@
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select, update
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.note import Note
 from app.models.note_ai_summary import NoteAISummary
+from app.models.user import User
 
 
 class NoteRepository:
@@ -40,15 +42,35 @@ class NoteRepository:
         stmt = select(Note).where(
             Note.user_id == user_id,
             Note.source_url_normalized == normalized_url,
+            Note.is_deleted.is_(False),
         )
         return self.db.scalar(stmt)
 
     def get_by_id_for_user(self, *, note_id: uuid.UUID, user_id: uuid.UUID) -> Note | None:
-        stmt = select(Note).where(Note.id == note_id, Note.user_id == user_id)
+        stmt = select(Note).where(Note.id == note_id, Note.user_id == user_id, Note.is_deleted.is_(False))
         return self.db.scalar(stmt)
 
     def get_public_by_id(self, note_id: uuid.UUID) -> Note | None:
-        stmt = select(Note).where(Note.id == note_id, Note.visibility == "public")
+        stmt = (
+            select(Note)
+            .join(User, Note.user_id == User.id)
+            .where(
+                Note.id == note_id,
+                Note.visibility == "public",
+                Note.is_deleted.is_(False),
+                User.is_deleted.is_(False),
+            )
+            .options(joinedload(Note.user))
+        )
+        return self.db.scalar(stmt)
+
+    def get_by_id_for_admin(self, note_id: uuid.UUID) -> Note | None:
+        stmt = (
+            select(Note)
+            .join(User, Note.user_id == User.id)
+            .where(Note.id == note_id, Note.is_deleted.is_(False), User.is_deleted.is_(False))
+            .options(joinedload(Note.user))
+        )
         return self.db.scalar(stmt)
 
     def list_for_user(
@@ -61,7 +83,7 @@ class NoteRepository:
         offset: int,
         limit: int,
     ) -> list[Note]:
-        stmt = select(Note).where(Note.user_id == user_id)
+        stmt = select(Note).where(Note.user_id == user_id, Note.is_deleted.is_(False))
 
         if status:
             stmt = stmt.where(Note.analysis_status == status)
@@ -73,6 +95,31 @@ class NoteRepository:
                 or_(
                     Note.source_title.ilike(like),
                     Note.source_url.ilike(like),
+                    Note.source_url_normalized.ilike(like),
+                    Note.note_body_md.ilike(like),
+                )
+            )
+
+        stmt = stmt.order_by(Note.updated_at.desc()).offset(offset).limit(limit)
+        return list(self.db.scalars(stmt))
+
+    def list_for_admin(self, *, keyword: str | None, offset: int, limit: int) -> list[Note]:
+        stmt = (
+            select(Note)
+            .join(User, Note.user_id == User.id)
+            .where(Note.is_deleted.is_(False), User.is_deleted.is_(False))
+            .options(joinedload(Note.user))
+        )
+
+        if keyword:
+            like = f"%{keyword}%"
+            stmt = stmt.where(
+                or_(
+                    User.user_id.ilike(like),
+                    User.email.ilike(like),
+                    Note.source_title.ilike(like),
+                    Note.source_url.ilike(like),
+                    Note.source_url_normalized.ilike(like),
                     Note.note_body_md.ilike(like),
                 )
             )
@@ -84,6 +131,24 @@ class NoteRepository:
         self.db.add(note)
         self.db.flush()
         return note
+
+    def soft_delete(self, note: Note) -> Note:
+        now = datetime.now(timezone.utc)
+        note.is_deleted = True
+        note.deleted_at = now
+        note.updated_at = now
+        self.db.add(note)
+        self.db.flush()
+        return note
+
+    def soft_delete_for_user(self, user_id: uuid.UUID) -> None:
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(Note)
+            .where(Note.user_id == user_id, Note.is_deleted.is_(False))
+            .values(is_deleted=True, deleted_at=now, updated_at=now)
+        )
+        self.db.execute(stmt)
 
     def create_summary(
         self,

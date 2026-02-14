@@ -16,6 +16,7 @@ from app.models.note import Note
 from app.models.note_ai_summary import NoteAISummary
 from app.models.user import User
 from app.repositories.note_repo import NoteRepository
+from app.schemas.auth import GenericMessageResponse
 from app.schemas.note import (
     CreateNoteRequest,
     CreateNoteResponse,
@@ -138,6 +139,15 @@ class NoteService:
         self.db.refresh(note)
         return self._build_note_detail(note)
 
+    def delete_note(self, *, user: User, note_id: UUID) -> GenericMessageResponse:
+        note = self.note_repo.get_by_id_for_user(note_id=note_id, user_id=user.id)
+        if not note:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="笔记不存在")
+
+        self.note_repo.soft_delete(note)
+        self.db.commit()
+        return GenericMessageResponse(message="笔记已删除")
+
     def get_public_note_detail(self, *, note_id: UUID) -> PublicNoteDetail:
         note = self.note_repo.get_public_by_id(note_id)
         if not note:
@@ -146,7 +156,7 @@ class NoteService:
         latest_summary = self.note_repo.get_latest_summary(note.id)
         return PublicNoteDetail(
             id=note.id,
-            source_url=note.source_url,
+            source_url=note.source_url_normalized,
             source_domain=note.source_domain,
             source_title=note.source_title,
             note_body_md=note.note_body_md,
@@ -159,7 +169,7 @@ class NoteService:
     def _build_note_list_item(self, note: Note) -> NoteListItem:
         return NoteListItem(
             id=note.id,
-            source_url=note.source_url,
+            source_url=note.source_url_normalized,
             source_domain=note.source_domain,
             source_title=note.source_title,
             visibility=note.visibility,
@@ -171,7 +181,7 @@ class NoteService:
         latest_summary = self.note_repo.get_latest_summary(note.id)
         return NoteDetail(
             id=note.id,
-            source_url=note.source_url,
+            source_url=note.source_url_normalized,
             source_domain=note.source_domain,
             source_title=note.source_title,
             note_body_md=note.note_body_md,

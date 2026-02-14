@@ -23,6 +23,7 @@ export default function NoteDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     apiRequest<UserPublic>("/me", {}, true)
@@ -90,6 +91,23 @@ export default function NoteDetailPage() {
     }
   }
 
+  async function onDelete() {
+    if (!window.confirm("确认删除这条笔记吗？删除后不可恢复。")) {
+      return;
+    }
+    setDeleting(true);
+    setError("");
+    setSuccess("");
+    try {
+      await apiRequest<{ message: string }>(`/notes/${noteId}`, { method: "DELETE" }, true);
+      router.push("/notes");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const publicUrl = useMemo(() => {
     if (!note || note.visibility !== "public") return "";
     if (typeof window === "undefined") return `/notes/public/${note.id}`;
@@ -136,6 +154,9 @@ export default function NoteDetailPage() {
               </button>
               <button className="btn secondary" type="button" onClick={onReanalyze} disabled={reanalyzing}>
                 {reanalyzing ? "重试中..." : "重试分析"}
+              </button>
+              <button className="btn secondary" type="button" onClick={onDelete} disabled={deleting}>
+                {deleting ? "删除中..." : "删除笔记"}
               </button>
             </div>
           </div>

@@ -10,30 +10,45 @@ class UserRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def get_by_id(self, user_pk: uuid.UUID) -> User | None:
-        return self.db.get(User, user_pk)
+    def _with_active_filter(self, stmt, *, include_deleted: bool):
+        if include_deleted:
+            return stmt
+        return stmt.where(User.is_deleted.is_(False))
 
-    def get_by_user_id(self, user_id: str) -> User | None:
-        return self.db.scalar(select(User).where(User.user_id == user_id))
-
-    def get_by_email(self, email: str) -> User | None:
-        return self.db.scalar(select(User).where(User.email == email))
-
-    def get_by_principal(self, principal: str) -> User | None:
-        stmt = select(User).where(or_(User.user_id == principal, User.email == principal))
+    def get_by_id(self, user_pk: uuid.UUID, *, include_deleted: bool = False) -> User | None:
+        stmt = select(User).where(User.id == user_pk)
+        stmt = self._with_active_filter(stmt, include_deleted=include_deleted)
         return self.db.scalar(stmt)
 
-    def list_users(self, *, keyword: str | None = None, offset: int = 0, limit: int = 50) -> list[User]:
-        stmt = select(User).order_by(User.created_at.desc()).offset(offset).limit(limit)
+    def get_by_user_id(self, user_id: str, *, include_deleted: bool = False) -> User | None:
+        stmt = select(User).where(User.user_id == user_id)
+        stmt = self._with_active_filter(stmt, include_deleted=include_deleted)
+        return self.db.scalar(stmt)
+
+    def get_by_email(self, email: str, *, include_deleted: bool = False) -> User | None:
+        stmt = select(User).where(User.email == email)
+        stmt = self._with_active_filter(stmt, include_deleted=include_deleted)
+        return self.db.scalar(stmt)
+
+    def get_by_principal(self, principal: str, *, include_deleted: bool = False) -> User | None:
+        stmt = select(User).where(or_(User.user_id == principal, User.email == principal))
+        stmt = self._with_active_filter(stmt, include_deleted=include_deleted)
+        return self.db.scalar(stmt)
+
+    def list_users(
+        self,
+        *,
+        keyword: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        include_deleted: bool = False,
+    ) -> list[User]:
+        stmt = select(User)
         if keyword:
             like = f"%{keyword}%"
-            stmt = (
-                select(User)
-                .where(or_(User.user_id.ilike(like), User.email.ilike(like), User.nickname.ilike(like)))
-                .order_by(User.created_at.desc())
-                .offset(offset)
-                .limit(limit)
-            )
+            stmt = stmt.where(or_(User.user_id.ilike(like), User.email.ilike(like), User.nickname.ilike(like)))
+        stmt = self._with_active_filter(stmt, include_deleted=include_deleted)
+        stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
         return list(self.db.scalars(stmt))
 
     def create(

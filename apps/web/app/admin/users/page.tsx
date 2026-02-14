@@ -36,6 +36,7 @@ export default function AdminUsersPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deletingUserId, setDeletingUserId] = useState("");
 
   useEffect(() => {
     const cached = getStoredUser();
@@ -115,6 +116,25 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function onDeleteUser(userId: string) {
+    if (!window.confirm(`确认删除用户 ${userId} 吗？该用户及其笔记会被逻辑删除。`)) {
+      return;
+    }
+
+    setSuccess("");
+    setError("");
+    setDeletingUserId(userId);
+    try {
+      await apiRequest<{ message: string }>(`/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" }, true);
+      setSuccess(`已删除用户 ${userId}`);
+      await fetchUsers(query);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setDeletingUserId("");
+    }
+  }
+
   const canRender = useMemo(() => Boolean(me?.is_admin), [me]);
 
   if (loading && users.length === 0) {
@@ -151,9 +171,14 @@ export default function AdminUsersPage() {
         <section className="card">
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <h1 style={{ margin: 0 }}>管理系统 · 用户账号管理</h1>
-            <button className="btn secondary" type="button" onClick={() => router.push("/profile")}>
-              返回资料页
-            </button>
+            <div className="row">
+              <button className="btn secondary" type="button" onClick={() => router.push("/admin/notes")}>
+                笔记管理
+              </button>
+              <button className="btn secondary" type="button" onClick={() => router.push("/profile")}>
+                返回资料页
+              </button>
+            </div>
           </div>
 
           <form className="row" onSubmit={onSearch} style={{ marginTop: 16 }}>
@@ -236,6 +261,15 @@ export default function AdminUsersPage() {
                       <td>
                         <button className="btn" type="button" onClick={() => onSave(user.user_id)}>
                           保存
+                        </button>
+                        <button
+                          className="btn secondary"
+                          type="button"
+                          onClick={() => onDeleteUser(user.user_id)}
+                          disabled={deletingUserId === user.user_id || me?.user_id === user.user_id}
+                          style={{ marginLeft: 8 }}
+                        >
+                          {deletingUserId === user.user_id ? "删除中..." : "删除"}
                         </button>
                       </td>
                     </tr>

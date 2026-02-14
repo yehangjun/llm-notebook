@@ -1,9 +1,13 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin_user
 from app.db.session import get_db
 from app.models.user import User
+from app.schemas.auth import GenericMessageResponse
+from app.schemas.note import AdminNoteListResponse
 from app.schemas.user import AdminUpdateUserRequest, AdminUserItem, AdminUserListResponse
 from app.services.admin_service import AdminService
 
@@ -33,3 +37,36 @@ def update_user(
     service = AdminService(db)
     user = service.update_user(target_user_id=target_user_id, payload=payload, current_admin=current_admin)
     return AdminUserItem.model_validate(user)
+
+
+@router.delete("/users/{target_user_id}", response_model=GenericMessageResponse)
+def delete_user(
+    target_user_id: str,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    service = AdminService(db)
+    return service.delete_user(target_user_id=target_user_id, current_admin=current_admin)
+
+
+@router.get("/notes", response_model=AdminNoteListResponse)
+def list_notes(
+    keyword: str | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    service = AdminService(db)
+    notes = service.list_notes(keyword=keyword, offset=offset, limit=limit)
+    return AdminNoteListResponse(notes=notes)
+
+
+@router.delete("/notes/{note_id}", response_model=GenericMessageResponse)
+def delete_note(
+    note_id: UUID,
+    _: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    service = AdminService(db)
+    return service.delete_note(note_id=note_id)
