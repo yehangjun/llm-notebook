@@ -42,6 +42,10 @@ docker compose -f infra/docker-compose.yml up --build
 - `/api/v1/me` (GET/PATCH)
 - `/api/v1/admin/users` (GET)
 - `/api/v1/admin/users/{user_id}` (PATCH)
+- `/api/v1/notes` (POST/GET)
+- `/api/v1/notes/{note_id}` (GET/PATCH)
+- `/api/v1/notes/{note_id}/reanalyze` (POST)
+- `/api/v1/notes/public/{note_id}` (GET)
 - `/api/v1/auth/sso/{provider}/start`（预留）
 - `/api/v1/auth/sso/{provider}/callback`（预留）
 

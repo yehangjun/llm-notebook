@@ -33,3 +33,4 @@ class User(Base):
     sessions = relationship("UserSession", back_populates="user")
     reset_tokens = relationship("PasswordResetToken", back_populates="user")
     identities = relationship("UserIdentity", back_populates="user")
+    notes = relationship("Note", back_populates="user")

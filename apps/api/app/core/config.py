@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     )
     register_email_code_max_attempts: int = Field(default=5, validation_alias="REGISTER_EMAIL_CODE_MAX_ATTEMPTS")
 
+    note_create_limit_per_hour: int = Field(default=30, validation_alias="NOTE_CREATE_LIMIT_PER_HOUR")
+    note_reanalyze_limit_per_10m: int = Field(default=10, validation_alias="NOTE_REANALYZE_LIMIT_PER_10M")
+    note_body_max_chars: int = Field(default=20000, validation_alias="NOTE_BODY_MAX_CHARS")
+    note_fetch_timeout_seconds: int = Field(default=8, validation_alias="NOTE_FETCH_TIMEOUT_SECONDS")
+    note_fetch_max_bytes: int = Field(default=500000, validation_alias="NOTE_FETCH_MAX_BYTES")
+    note_model_provider: str = Field(default="prism", validation_alias="NOTE_MODEL_PROVIDER")
+    note_model_name: str = Field(default="summary-lite", validation_alias="NOTE_MODEL_NAME")
+    note_model_version: str = Field(default="v1", validation_alias="NOTE_MODEL_VERSION")
+
     admin_user_id: str = Field(default="admin", validation_alias="ADMIN_USER_ID")
     admin_email: str = Field(default="admin@llm-notebook.local", validation_alias="ADMIN_EMAIL")
     admin_password: str = Field(default="ChangeMe123!", validation_alias="ADMIN_PASSWORD")

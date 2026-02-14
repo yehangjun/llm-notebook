@@ -21,6 +21,9 @@ export default function GlobalNav() {
           <Link className={pathname === "/" ? "nav-link active" : "nav-link"} href="/">
             首页
           </Link>
+          <Link className={pathname?.startsWith("/notes") ? "nav-link active" : "nav-link"} href="/notes">
+            笔记
+          </Link>
           <a className="nav-link" href="/#discover">
             Discover
           </a>
