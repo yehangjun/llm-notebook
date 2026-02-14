@@ -29,6 +29,9 @@ from app.schemas.note import (
 
 ALLOWED_VISIBILITY = {"private", "public"}
 ALLOWED_ANALYSIS_STATUS = {"pending", "running", "succeeded", "failed"}
+WECHAT_HOST = "mp.weixin.qq.com"
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
+YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
 
 
 @dataclass
@@ -303,20 +306,79 @@ class NoteService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="链接格式不合法")
         self._ensure_public_host(host)
 
-        try:
-            port = parsed.port
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="链接格式不合法") from exc
-        netloc = host
-        if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
-            netloc = f"{host}:{port}"
+        if host == WECHAT_HOST:
+            return self._normalize_wechat_url(source_url, parsed)
+        if host in YOUTUBE_HOSTS:
+            return self._normalize_youtube_url(source_url, parsed)
 
-        path = parsed.path or "/"
-        if path != "/":
-            path = path.rstrip("/") or "/"
-        query = urllib.parse.urlencode(sorted(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)))
-        normalized = urllib.parse.urlunsplit((scheme, netloc, path, query, ""))
-        return source_url, normalized, host
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前仅支持微信公众号（mp.weixin.qq.com）和 YouTube 链接",
+        )
+
+    def _normalize_wechat_url(
+        self,
+        source_url: str,
+        parsed: urllib.parse.SplitResult,
+    ) -> tuple[str, str, str]:
+        if parsed.path.startswith("/s/"):
+            article_key = parsed.path[len("/s/") :].strip("/")
+            if not article_key:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="暂仅支持微信公众号文章链接")
+            normalized = urllib.parse.urlunsplit(("https", WECHAT_HOST, f"/s/{article_key}", "", ""))
+            return source_url, normalized, WECHAT_HOST
+
+        if parsed.path != "/s":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="暂仅支持微信公众号文章链接")
+
+        query_map = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+        for key in ("__biz", "mid", "idx"):
+            if not query_map.get(key, "").strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"微信公众号链接缺少关键参数：{key}",
+                )
+
+        canonical_items: list[tuple[str, str]] = []
+        for key in ("__biz", "mid", "idx", "sn"):
+            value = query_map.get(key, "").strip()
+            if value:
+                canonical_items.append((key, value))
+
+        canonical_query = urllib.parse.urlencode(canonical_items)
+        normalized = urllib.parse.urlunsplit(("https", WECHAT_HOST, "/s", canonical_query, ""))
+        return source_url, normalized, WECHAT_HOST
+
+    def _normalize_youtube_url(
+        self,
+        source_url: str,
+        parsed: urllib.parse.SplitResult,
+    ) -> tuple[str, str, str]:
+        host = (parsed.hostname or "").strip().lower()
+        video_id = ""
+
+        if host in {"youtu.be", "www.youtu.be"}:
+            path = parsed.path.strip("/")
+            if path:
+                video_id = path.split("/", 1)[0]
+        else:
+            if parsed.path == "/watch":
+                query_map = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+                video_id = query_map.get("v", "").strip()
+            elif parsed.path.startswith("/shorts/") or parsed.path.startswith("/live/") or parsed.path.startswith("/embed/"):
+                parts = [segment for segment in parsed.path.split("/") if segment]
+                if len(parts) >= 2:
+                    video_id = parts[1]
+
+        video_id = urllib.parse.unquote(video_id).strip()
+        if not video_id or not YOUTUBE_VIDEO_ID_RE.fullmatch(video_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="暂仅支持 YouTube 视频链接（watch/youtu.be/shorts）",
+            )
+
+        normalized = urllib.parse.urlunsplit(("https", "www.youtube.com", "/watch", f"v={video_id}", ""))
+        return source_url, normalized, "youtube.com"
 
     def _ensure_public_host(self, host: str) -> None:
         if host == "localhost" or host.endswith(".local"):
