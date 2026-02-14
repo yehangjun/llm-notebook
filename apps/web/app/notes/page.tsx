@@ -114,11 +114,7 @@ export default function NotesPage() {
   }
 
   function openBookmark(item: FeedItem) {
-    if (item.item_type === "note") {
-      router.push(`/notes/public/${item.id}`);
-      return;
-    }
-    window.open(item.source_url, "_blank", "noopener,noreferrer");
+    router.push(`/feed/items/${item.item_type}/${item.id}`);
   }
 
   return (

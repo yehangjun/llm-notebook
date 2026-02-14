@@ -13,27 +13,51 @@ export default function FeedPage() {
   const router = useRouter();
   const [scope, setScope] = useState<FeedScope>("following");
   const [tag, setTag] = useState("");
+  const [keyword, setKeyword] = useState("");
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actingId, setActingId] = useState("");
 
   useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const nextScope = parseScope(query.get("scope"));
+    const nextTag = (query.get("tag") || "").trim();
+    const nextKeyword = (query.get("keyword") || "").trim();
+
     apiRequest<UserPublic>("/me", {}, true)
-      .then(() => fetchFeed({ nextScope: "following", nextTag: "" }))
+      .then(async () => {
+        setScope(nextScope);
+        setTag(nextTag);
+        setKeyword(nextKeyword);
+        await fetchFeed({
+          nextScope,
+          nextTag,
+          nextKeyword,
+        });
+      })
       .catch(() => {
         clearAuth();
         router.push("/auth");
       });
   }, [router]);
 
-  async function fetchFeed({ nextScope, nextTag }: { nextScope: FeedScope; nextTag: string }) {
+  async function fetchFeed({
+    nextScope,
+    nextTag,
+    nextKeyword,
+  }: {
+    nextScope: FeedScope;
+    nextTag: string;
+    nextKeyword: string;
+  }) {
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
       params.set("scope", nextScope);
       if (nextTag.trim()) params.set("tag", nextTag.trim().toLowerCase());
+      if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
       const path = `/feed?${params.toString()}`;
       const data = await apiRequest<FeedListResponse>(path, {}, true);
       setItems(data.items);
@@ -44,14 +68,25 @@ export default function FeedPage() {
     }
   }
 
+  function pushQuery(nextScope: FeedScope, nextTag: string, nextKeyword: string) {
+    const params = new URLSearchParams();
+    params.set("scope", nextScope);
+    if (nextTag.trim()) params.set("tag", nextTag.trim().toLowerCase());
+    if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+    router.replace(`/feed?${params.toString()}`);
+  }
+
   async function onSearch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    await fetchFeed({ nextScope: scope, nextTag: tag });
+    await fetchFeed({ nextScope: scope, nextTag: tag, nextKeyword: keyword });
+    pushQuery(scope, tag, keyword);
   }
 
   async function switchScope(nextScope: FeedScope) {
+    if (scope === nextScope) return;
     setScope(nextScope);
-    await fetchFeed({ nextScope, nextTag: tag });
+    await fetchFeed({ nextScope, nextTag: tag, nextKeyword: keyword });
+    pushQuery(nextScope, tag, keyword);
   }
 
   async function onToggleLike(item: FeedItem) {
@@ -62,7 +97,7 @@ export default function FeedPage() {
       const path =
         item.item_type === "note" ? `/social/likes/notes/${item.id}` : `/social/likes/aggregates/${item.id}`;
       await apiRequest<{ message: string }>(path, { method }, true);
-      await fetchFeed({ nextScope: scope, nextTag: tag });
+      await fetchFeed({ nextScope: scope, nextTag: tag, nextKeyword: keyword });
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败");
     } finally {
@@ -80,7 +115,7 @@ export default function FeedPage() {
           ? `/social/bookmarks/notes/${item.id}`
           : `/social/bookmarks/aggregates/${item.id}`;
       await apiRequest<{ message: string }>(path, { method }, true);
-      await fetchFeed({ nextScope: scope, nextTag: tag });
+      await fetchFeed({ nextScope: scope, nextTag: tag, nextKeyword: keyword });
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败");
     } finally {
@@ -98,7 +133,7 @@ export default function FeedPage() {
           ? `/social/follows/users/${item.creator_id}`
           : `/social/follows/sources/${item.creator_id}`;
       await apiRequest<{ message: string }>(path, { method }, true);
-      await fetchFeed({ nextScope: scope, nextTag: tag });
+      await fetchFeed({ nextScope: scope, nextTag: tag, nextKeyword: keyword });
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败");
     } finally {
@@ -107,11 +142,7 @@ export default function FeedPage() {
   }
 
   function openDetail(item: FeedItem) {
-    if (item.item_type === "note") {
-      router.push(`/notes/public/${item.id}`);
-      return;
-    }
-    window.open(item.source_url, "_blank", "noopener,noreferrer");
+    router.push(`/feed/items/${item.item_type}/${item.id}`);
   }
 
   return (
@@ -135,6 +166,12 @@ export default function FeedPage() {
           </div>
 
           <form className="row" onSubmit={onSearch}>
+            <input
+              style={{ flex: 1, minWidth: 220 }}
+              placeholder="关键词（标题/链接/创作者/摘要）"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
             <input
               style={{ flex: 1, minWidth: 220 }}
               placeholder="按标签筛选（例如：openai）"
@@ -211,3 +248,7 @@ export default function FeedPage() {
   );
 }
 
+function parseScope(raw: string | null): FeedScope {
+  if (raw === "unfollowed") return "unfollowed";
+  return "following";
+}

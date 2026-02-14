@@ -16,7 +16,7 @@ from app.models.user_bookmark import UserBookmark
 from app.models.user_follow import UserFollow
 from app.models.user_like import UserLike
 from app.repositories.note_repo import NoteRepository
-from app.schemas.feed import FeedItem, FeedListResponse
+from app.schemas.feed import FeedDetailResponse, FeedItem, FeedListResponse
 
 FEED_SCOPE_ALL = "all"
 FEED_SCOPE_FOLLOWING = "following"
@@ -43,11 +43,13 @@ class FeedService:
         user: User,
         scope: str | None,
         tag: str | None,
+        keyword: str | None,
         offset: int,
         limit: int,
     ) -> FeedListResponse:
         scope_value = self._normalize_scope(scope)
         tag_value = self._normalize_tag(tag)
+        keyword_value = self._normalize_keyword(keyword)
 
         followed_user_ids, followed_source_ids = self._load_following_sets(user.id)
 
@@ -61,6 +63,16 @@ class FeedService:
                 continue
             if tag_value and tag_value not in (note.tags_json or []):
                 continue
+            creator_name = self._creator_name_for_note(note)
+            if keyword_value and not self._match_keyword(
+                keyword=keyword_value,
+                source_title=note.source_title,
+                source_url=note.source_url_normalized,
+                source_domain=note.source_domain,
+                creator_name=creator_name,
+                summary_text=note.note_body_md,
+            ):
+                continue
             if not self._match_scope(
                 scope=scope_value,
                 target_id=note.user_id,
@@ -71,6 +83,16 @@ class FeedService:
 
         for aggregate in aggregates:
             if tag_value and tag_value not in (aggregate.tags_json or []):
+                continue
+            creator_name = aggregate.source_creator.display_name if aggregate.source_creator else None
+            if keyword_value and not self._match_keyword(
+                keyword=keyword_value,
+                source_title=aggregate.source_title,
+                source_url=aggregate.source_url_normalized,
+                source_domain=aggregate.source_domain,
+                creator_name=creator_name,
+                summary_text=aggregate.summary_text,
+            ):
                 continue
             if not self._match_scope(
                 scope=scope_value,
@@ -153,6 +175,77 @@ class FeedService:
             )
         )
 
+    def get_item_detail(self, *, user: User, item_type: str, item_id: UUID) -> FeedDetailResponse:
+        kind = item_type.strip().lower()
+        followed_user_ids, followed_source_ids = self._load_following_sets(user.id)
+
+        if kind == "note":
+            note = self.db.scalar(
+                select(Note)
+                .join(User, User.id == Note.user_id)
+                .options(joinedload(Note.user))
+                .where(
+                    Note.id == item_id,
+                    Note.visibility == "public",
+                    Note.is_deleted.is_(False),
+                    User.is_deleted.is_(False),
+                )
+            )
+            if not note:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="内容不存在")
+
+            item = self._build_items_for_records(
+                user=user,
+                records=[("note", note)],
+                followed_user_ids=followed_user_ids,
+                followed_source_ids=followed_source_ids,
+            )[0]
+            latest_summary = self.note_repo.get_latest_summary(note.id)
+            return FeedDetailResponse(
+                item=item,
+                summary_text=latest_summary.summary_text if latest_summary else None,
+                key_points=(latest_summary.key_points_json or []) if latest_summary else [],
+                note_body_md=note.note_body_md,
+                analysis_error=(latest_summary.error_message if latest_summary else None) or note.analysis_error,
+                model_provider=latest_summary.model_provider if latest_summary else None,
+                model_name=latest_summary.model_name if latest_summary else None,
+                model_version=latest_summary.model_version if latest_summary else None,
+                analyzed_at=latest_summary.analyzed_at if latest_summary else None,
+            )
+
+        if kind == "aggregate":
+            aggregate = self.db.scalar(
+                select(AggregateItem)
+                .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
+                .options(joinedload(AggregateItem.source_creator))
+                .where(
+                    AggregateItem.id == item_id,
+                    SourceCreator.is_active.is_(True),
+                )
+            )
+            if not aggregate:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="内容不存在")
+
+            item = self._build_items_for_records(
+                user=user,
+                records=[("aggregate", aggregate)],
+                followed_user_ids=followed_user_ids,
+                followed_source_ids=followed_source_ids,
+            )[0]
+            return FeedDetailResponse(
+                item=item,
+                summary_text=aggregate.summary_text,
+                key_points=aggregate.key_points_json or [],
+                note_body_md=None,
+                analysis_error=aggregate.analysis_error,
+                model_provider=aggregate.model_provider,
+                model_name=aggregate.model_name,
+                model_version=aggregate.model_version,
+                analyzed_at=aggregate.updated_at,
+            )
+
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的内容类型")
+
     def _build_items_for_records(
         self,
         *,
@@ -186,7 +279,7 @@ class FeedService:
                         item_type="note",
                         creator_kind="user",
                         creator_id=note.user.user_id if note.user else "",
-                        creator_name=(note.user.nickname or note.user.user_id) if note.user else "",
+                        creator_name=self._creator_name_for_note(note),
                         source_url=note.source_url_normalized,
                         source_domain=note.source_domain,
                         source_title=note.source_title,
@@ -377,6 +470,12 @@ class FeedService:
         tag = value.strip().lower()
         return tag or None
 
+    def _normalize_keyword(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        keyword = value.strip().lower()
+        return keyword or None
+
     def _match_scope(self, *, scope: str, target_id: UUID, followed_ids: set[UUID]) -> bool:
         if scope == FEED_SCOPE_ALL:
             return True
@@ -391,3 +490,30 @@ class FeedService:
         if len(clean) <= max_len:
             return clean
         return f"{clean[:max_len].rstrip()}..."
+
+    def _match_keyword(
+        self,
+        *,
+        keyword: str,
+        source_title: str | None,
+        source_url: str | None,
+        source_domain: str | None,
+        creator_name: str | None,
+        summary_text: str | None,
+    ) -> bool:
+        fields = (
+            source_title or "",
+            source_url or "",
+            source_domain or "",
+            creator_name or "",
+            summary_text or "",
+        )
+        for field in fields:
+            if keyword in field.lower():
+                return True
+        return False
+
+    def _creator_name_for_note(self, note: Note) -> str:
+        if not note.user:
+            return ""
+        return note.user.nickname or note.user.user_id

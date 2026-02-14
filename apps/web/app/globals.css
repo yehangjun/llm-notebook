@@ -63,6 +63,14 @@ a {
   padding: 0 20px;
 }
 
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
 .nav-brand {
   display: inline-flex;
   align-items: center;
@@ -93,6 +101,7 @@ a {
   display: flex;
   align-items: center;
   gap: 18px;
+  margin: 0 12px;
 }
 
 .nav-link {
@@ -107,10 +116,37 @@ a {
   color: var(--text);
 }
 
+.nav-search {
+  width: 100%;
+  max-width: 340px;
+}
+
+.nav-search input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
 .nav-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
 .account-btn {
@@ -432,6 +468,10 @@ form textarea {
     grid-template-columns: 1fr;
   }
 
+  .nav-search {
+    max-width: 220px;
+  }
+
   .nav-links {
     display: none;
   }
@@ -445,6 +485,14 @@ form textarea {
   .nav {
     height: 60px;
     padding: 0 14px;
+  }
+
+  .nav-left {
+    gap: 8px;
+  }
+
+  .nav-search {
+    display: none;
   }
 
   .brand-text {
