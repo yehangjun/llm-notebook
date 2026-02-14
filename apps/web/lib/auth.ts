@@ -20,12 +20,19 @@ export type AuthResponse = {
 const ACCESS_TOKEN_KEY = "llm_access_token";
 const REFRESH_TOKEN_KEY = "llm_refresh_token";
 const USER_KEY = "llm_user";
+export const AUTH_CHANGED_EVENT = "llm-auth-changed";
+
+function emitAuthChanged(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+}
 
 export function saveAuth(auth: AuthResponse): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(ACCESS_TOKEN_KEY, auth.token.access_token);
   localStorage.setItem(REFRESH_TOKEN_KEY, auth.token.refresh_token);
   localStorage.setItem(USER_KEY, JSON.stringify(auth.user));
+  emitAuthChanged();
 }
 
 export function clearAuth(): void {
@@ -33,6 +40,7 @@ export function clearAuth(): void {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  emitAuthChanged();
 }
 
 export function getAccessToken(): string | null {
@@ -70,4 +78,5 @@ export function getStoredUser(): UserPublic | null {
 export function setStoredUser(user: UserPublic): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  emitAuthChanged();
 }

@@ -1,40 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
-import { getStoredUser } from "../lib/auth";
+import { AUTH_CHANGED_EVENT, getStoredUser, UserPublic } from "../lib/auth";
 
 export default function AccountEntry() {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-  const [label, setLabel] = useState("登录/注册");
+  const [user, setUser] = useState<UserPublic | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-    const user = getStoredUser();
-    if (!user) {
-      setLabel("登录/注册");
-      return;
-    }
-    if (user.nickname && user.nickname !== user.user_id) {
-      setLabel(user.nickname);
-      return;
-    }
-    setLabel(user.user_id);
+    const syncUser = () => {
+      setUser(getStoredUser());
+    };
+
+    syncUser();
+    window.addEventListener("storage", syncUser);
+    window.addEventListener(AUTH_CHANGED_EVENT, syncUser);
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener(AUTH_CHANGED_EVENT, syncUser);
+    };
   }, []);
 
-  const target = useMemo(() => {
-    if (!mounted) return "/auth";
-    return label === "登录/注册" ? "/auth" : "/profile";
-  }, [label, mounted]);
+  const label = useMemo(() => {
+    if (!user) return "登录/注册";
+    if (user.nickname && user.nickname !== user.user_id) {
+      return user.nickname;
+    }
+    return user.user_id;
+  }, [user]);
+  const target = user ? "/profile" : "/auth";
 
   return (
-    <button
-      className="account-btn"
-      onClick={() => router.push(target)}
-      aria-label="account-entry"
-    >
+    <button className="account-btn" onClick={() => router.push(target)} aria-label="account-entry">
       {label}
     </button>
   );

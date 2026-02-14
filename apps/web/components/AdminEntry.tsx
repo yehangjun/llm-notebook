@@ -3,18 +3,27 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { getStoredUser } from "../lib/auth";
+import { AUTH_CHANGED_EVENT, getStoredUser, UserPublic } from "../lib/auth";
 
 export default function AdminEntry() {
   const router = useRouter();
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [user, setUser] = useState<UserPublic | null>(null);
 
   useEffect(() => {
-    const user = getStoredUser();
-    setIsAdmin(Boolean(user?.is_admin));
+    const syncUser = () => {
+      setUser(getStoredUser());
+    };
+
+    syncUser();
+    window.addEventListener("storage", syncUser);
+    window.addEventListener(AUTH_CHANGED_EVENT, syncUser);
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener(AUTH_CHANGED_EVENT, syncUser);
+    };
   }, []);
 
-  if (!isAdmin) {
+  if (!user?.is_admin) {
     return null;
   }
 
