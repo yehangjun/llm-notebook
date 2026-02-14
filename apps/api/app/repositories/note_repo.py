@@ -64,13 +64,15 @@ class NoteRepository:
         )
         return self.db.scalar(stmt)
 
-    def get_by_id_for_admin(self, note_id: uuid.UUID) -> Note | None:
+    def get_by_id_for_admin(self, note_id: uuid.UUID, *, include_deleted: bool = True) -> Note | None:
         stmt = (
             select(Note)
             .join(User, Note.user_id == User.id)
-            .where(Note.id == note_id, Note.is_deleted.is_(False), User.is_deleted.is_(False))
+            .where(Note.id == note_id)
             .options(joinedload(Note.user))
         )
+        if not include_deleted:
+            stmt = stmt.where(Note.is_deleted.is_(False))
         return self.db.scalar(stmt)
 
     def list_for_user(
@@ -103,13 +105,27 @@ class NoteRepository:
         stmt = stmt.order_by(Note.updated_at.desc()).offset(offset).limit(limit)
         return list(self.db.scalars(stmt))
 
-    def list_for_admin(self, *, keyword: str | None, offset: int, limit: int) -> list[Note]:
-        stmt = (
-            select(Note)
-            .join(User, Note.user_id == User.id)
-            .where(Note.is_deleted.is_(False), User.is_deleted.is_(False))
-            .options(joinedload(Note.user))
-        )
+    def list_for_admin(
+        self,
+        *,
+        status: str | None,
+        visibility: str | None,
+        deleted: bool | None,
+        owner_user_id: str | None,
+        keyword: str | None,
+        offset: int,
+        limit: int,
+    ) -> list[Note]:
+        stmt = select(Note).join(User, Note.user_id == User.id).options(joinedload(Note.user))
+
+        if status:
+            stmt = stmt.where(Note.analysis_status == status)
+        if visibility:
+            stmt = stmt.where(Note.visibility == visibility)
+        if deleted is not None:
+            stmt = stmt.where(Note.is_deleted.is_(deleted))
+        if owner_user_id:
+            stmt = stmt.where(User.user_id == owner_user_id)
 
         if keyword:
             like = f"%{keyword}%"
@@ -136,6 +152,15 @@ class NoteRepository:
         now = datetime.now(timezone.utc)
         note.is_deleted = True
         note.deleted_at = now
+        note.updated_at = now
+        self.db.add(note)
+        self.db.flush()
+        return note
+
+    def restore(self, note: Note) -> Note:
+        now = datetime.now(timezone.utc)
+        note.is_deleted = False
+        note.deleted_at = None
         note.updated_at = now
         self.db.add(note)
         self.db.flush()

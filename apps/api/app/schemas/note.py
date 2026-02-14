@@ -59,11 +59,14 @@ class NoteListResponse(BaseModel):
 class AdminNoteItem(BaseModel):
     id: UUID
     owner_user_id: str
+    owner_is_deleted: bool
     source_url: str
     source_domain: str
     source_title: str | None
     visibility: str
     analysis_status: str
+    is_deleted: bool
+    deleted_at: datetime | None
     updated_at: datetime
 
 

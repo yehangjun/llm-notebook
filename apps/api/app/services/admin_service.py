@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import ALLOWED_UI_LANGUAGES
@@ -72,28 +73,106 @@ class AdminService:
         self.db.commit()
         return GenericMessageResponse(message="用户已删除")
 
-    def list_notes(self, *, keyword: str | None, offset: int, limit: int) -> list[AdminNoteItem]:
-        notes = self.note_repo.list_for_admin(keyword=keyword, offset=offset, limit=limit)
+    def list_notes(
+        self,
+        *,
+        status_filter: str | None,
+        visibility_filter: str | None,
+        deleted_filter: str | None,
+        owner_user_id: str | None,
+        keyword: str | None,
+        offset: int,
+        limit: int,
+    ) -> list[AdminNoteItem]:
+        status_value = self._validate_note_status(status_filter)
+        visibility_value = self._validate_note_visibility(visibility_filter)
+        deleted_value = self._validate_deleted_filter(deleted_filter)
+        owner_value = owner_user_id.strip() if owner_user_id else None
+        keyword_value = keyword.strip() if keyword else None
+        notes = self.note_repo.list_for_admin(
+            status=status_value,
+            visibility=visibility_value,
+            deleted=deleted_value,
+            owner_user_id=owner_value,
+            keyword=keyword_value,
+            offset=offset,
+            limit=limit,
+        )
         return [self._build_admin_note_item(note) for note in notes]
 
     def delete_note(self, *, note_id: UUID) -> GenericMessageResponse:
-        note = self.note_repo.get_by_id_for_admin(note_id)
+        note = self.note_repo.get_by_id_for_admin(note_id, include_deleted=True)
         if not note:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="笔记不存在")
+        if note.is_deleted:
+            return GenericMessageResponse(message="笔记已删除")
 
         self.note_repo.soft_delete(note)
         self.db.commit()
         return GenericMessageResponse(message="笔记已删除")
 
+    def restore_note(self, *, note_id: UUID) -> GenericMessageResponse:
+        note = self.note_repo.get_by_id_for_admin(note_id, include_deleted=True)
+        if not note:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="笔记不存在")
+        if not note.is_deleted:
+            return GenericMessageResponse(message="笔记已恢复")
+        if note.user and note.user.is_deleted:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="所属用户已删除，无法恢复笔记")
+
+        try:
+            self.note_repo.restore(note)
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="该用户已存在同一归一化链接的有效笔记，无法恢复",
+            ) from exc
+        return GenericMessageResponse(message="笔记已恢复")
+
     def _build_admin_note_item(self, note: Note) -> AdminNoteItem:
         owner_user_id = note.user.user_id if note.user else ""
+        owner_is_deleted = bool(note.user.is_deleted) if note.user else False
         return AdminNoteItem(
             id=note.id,
             owner_user_id=owner_user_id,
+            owner_is_deleted=owner_is_deleted,
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
             source_title=note.source_title,
             visibility=note.visibility,
             analysis_status=note.analysis_status,
+            is_deleted=note.is_deleted,
+            deleted_at=note.deleted_at,
             updated_at=note.updated_at,
         )
+
+    def _validate_note_status(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        status_value = value.strip().lower()
+        allowed = {"pending", "running", "succeeded", "failed"}
+        if status_value not in allowed:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的分析状态")
+        return status_value
+
+    def _validate_note_visibility(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        visibility = value.strip().lower()
+        if visibility not in {"private", "public"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的可见性")
+        return visibility
+
+    def _validate_deleted_filter(self, value: str | None) -> bool | None:
+        if value is None:
+            return None
+        raw = value.strip().lower()
+        if raw == "all" or raw == "":
+            return None
+        if raw == "active":
+            return False
+        if raw == "deleted":
+            return True
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的删除状态过滤条件")
