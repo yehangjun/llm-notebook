@@ -52,7 +52,7 @@ export default function AuthPage() {
         }),
       });
       saveAuth(data);
-      router.push("/profile");
+      router.push(getPostLoginTarget(data));
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
     } finally {
@@ -80,7 +80,7 @@ export default function AuthPage() {
         }),
       });
       saveAuth(data);
-      router.push("/profile");
+      router.push(getPostLoginTarget(data));
     } catch (err) {
       setError(err instanceof Error ? err.message : "注册失败");
     } finally {
@@ -247,4 +247,11 @@ export default function AuthPage() {
       </div>
     </main>
   );
+}
+
+function getPostLoginTarget(auth: AuthResponse): string {
+  if (auth.user.is_admin) {
+    return "/admin/users";
+  }
+  return "/notes";
 }
