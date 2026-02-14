@@ -33,6 +33,7 @@ ALLOWED_ANALYSIS_STATUS = {"pending", "running", "succeeded", "failed"}
 WECHAT_HOST = "mp.weixin.qq.com"
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
 YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
+DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 @dataclass
@@ -310,6 +311,10 @@ class NoteService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="仅支持 http/https 链接")
         if parsed.username or parsed.password:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="链接格式不合法")
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="链接格式不合法") from exc
 
         host = (parsed.hostname or "").strip().lower()
         if not host:
@@ -317,52 +322,47 @@ class NoteService:
         self._ensure_public_host(host)
 
         if host == WECHAT_HOST:
-            return self._normalize_wechat_url(source_url, parsed)
+            return self._normalize_wechat_url(source_url, parsed, port)
         if host in YOUTUBE_HOSTS:
-            return self._normalize_youtube_url(source_url, parsed)
+            return self._normalize_youtube_url(source_url, parsed, port)
 
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前仅支持微信公众号（mp.weixin.qq.com）和 YouTube 链接",
-        )
+        normalized = self._normalize_generic_url(parsed=parsed, host=host, port=port)
+        return source_url, normalized, host
 
     def _normalize_wechat_url(
         self,
         source_url: str,
         parsed: urllib.parse.SplitResult,
+        port: int | None,
     ) -> tuple[str, str, str]:
         if parsed.path.startswith("/s/"):
             article_key = parsed.path[len("/s/") :].strip("/")
-            if not article_key:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="暂仅支持微信公众号文章链接")
-            normalized = urllib.parse.urlunsplit(("https", WECHAT_HOST, f"/s/{article_key}", "", ""))
-            return source_url, normalized, WECHAT_HOST
+            if article_key:
+                normalized = urllib.parse.urlunsplit(("https", WECHAT_HOST, f"/s/{article_key}", "", ""))
+                return source_url, normalized, WECHAT_HOST
 
-        if parsed.path != "/s":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="暂仅支持微信公众号文章链接")
+        if parsed.path == "/s":
+            query_map = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+            has_required_params = all(query_map.get(key, "").strip() for key in ("__biz", "mid", "idx"))
+            if has_required_params:
+                canonical_items: list[tuple[str, str]] = []
+                for key in ("__biz", "mid", "idx", "sn"):
+                    value = query_map.get(key, "").strip()
+                    if value:
+                        canonical_items.append((key, value))
 
-        query_map = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
-        for key in ("__biz", "mid", "idx"):
-            if not query_map.get(key, "").strip():
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"微信公众号链接缺少关键参数：{key}",
-                )
+                canonical_query = urllib.parse.urlencode(canonical_items)
+                normalized = urllib.parse.urlunsplit(("https", WECHAT_HOST, "/s", canonical_query, ""))
+                return source_url, normalized, WECHAT_HOST
 
-        canonical_items: list[tuple[str, str]] = []
-        for key in ("__biz", "mid", "idx", "sn"):
-            value = query_map.get(key, "").strip()
-            if value:
-                canonical_items.append((key, value))
-
-        canonical_query = urllib.parse.urlencode(canonical_items)
-        normalized = urllib.parse.urlunsplit(("https", WECHAT_HOST, "/s", canonical_query, ""))
+        normalized = self._normalize_generic_url(parsed=parsed, host=WECHAT_HOST, port=port)
         return source_url, normalized, WECHAT_HOST
 
     def _normalize_youtube_url(
         self,
         source_url: str,
         parsed: urllib.parse.SplitResult,
+        port: int | None,
     ) -> tuple[str, str, str]:
         host = (parsed.hostname or "").strip().lower()
         video_id = ""
@@ -381,14 +381,24 @@ class NoteService:
                     video_id = parts[1]
 
         video_id = urllib.parse.unquote(video_id).strip()
-        if not video_id or not YOUTUBE_VIDEO_ID_RE.fullmatch(video_id):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="暂仅支持 YouTube 视频链接（watch/youtu.be/shorts）",
-            )
+        if video_id and YOUTUBE_VIDEO_ID_RE.fullmatch(video_id):
+            normalized = urllib.parse.urlunsplit(("https", "www.youtube.com", "/watch", f"v={video_id}", ""))
+            return source_url, normalized, "youtube.com"
 
-        normalized = urllib.parse.urlunsplit(("https", "www.youtube.com", "/watch", f"v={video_id}", ""))
+        normalized = self._normalize_generic_url(parsed=parsed, host=host, port=port)
         return source_url, normalized, "youtube.com"
+
+    def _normalize_generic_url(self, *, parsed: urllib.parse.SplitResult, host: str, port: int | None) -> str:
+        scheme = parsed.scheme.lower()
+        host_for_netloc = f"[{host}]" if ":" in host else host
+        netloc = host_for_netloc
+        if port and port != DEFAULT_PORTS.get(scheme):
+            netloc = f"{host_for_netloc}:{port}"
+
+        path = parsed.path or "/"
+        if not path.startswith("/"):
+            path = f"/{path}"
+        return urllib.parse.urlunsplit((scheme, netloc, path, parsed.query, ""))
 
     def _ensure_public_host(self, host: str) -> None:
         if host == "localhost" or host.endswith(".local"):

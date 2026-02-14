@@ -70,6 +70,9 @@ export default function NewNotePage() {
                 onChange={(e) => setSourceUrl(e.target.value)}
                 required
               />
+              <div className="helper" style={{ marginTop: 6 }}>
+                支持所有网站链接；微信公众号和 YouTube 链接会自动归一化并去重。
+              </div>
             </div>
             <div className="field">
               <label htmlFor="visibility">可见性</label>
