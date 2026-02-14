@@ -22,6 +22,8 @@
 - 后端保留可插拔 SSO 接口（gmail/wechat），前端不展示入口
 - 系统初始化自动创建管理员账号（与普通用户同表）
 - 管理员登录后显示管理入口，支持用户账号管理
+- 学习笔记闭环：外部链接导入 -> 按需解析 -> AI 摘要 -> 用户心得编辑 -> 公开分享
+- 信息流/收藏/轻社交能力在本期只保留产品目标描述，不在 V2 详细设计中落地
 
 ### 1.3 非目标
 - 不做原创内容平台
@@ -36,8 +38,15 @@
 - 提供 AI 自动分析与总结能力，聚焦文字学习笔记记录。
 - 鼓励用户公开分享学习笔记。
 
-### 2.2 自动聚合内容
-- 当前阶段聚焦聚合流程与可用闭环，复杂自动聚合策略后续迭代。
+### 2.2 自动聚合内容（本期不设计）
+- 与 `IDEA.md` 对齐：V2 不设计自动聚合能力（不做全网爬取、RSS 订阅、定时抓取）。
+- 本期仅支持用户在创建笔记时手动输入外部链接。
+- 链接提交后执行“按需解析”：
+  1. URL 校验（仅 `http/https`，拒绝内网地址）
+  2. 页面抓取与正文提取
+  3. 提取来源元数据（标题、作者/来源、发布时间、封面图）
+  4. 入队 AI 摘要任务
+- 解析失败场景（付费墙、需登录、无正文、反爬）统一落到失败状态，并返回可重试信息。
 
 ## 3. 总体架构
 
@@ -51,9 +60,9 @@
 
 ### 3.2 架构分层
 - `presentation`：页面、接口路由、参数校验
-- `application`：用例编排（注册、登录、忘记密码等）
-- `domain`：用户、会话、密码令牌等业务规则
-- `infrastructure`：DB、Redis、SMTP、SSO provider 实现
+- `application`：用例编排（注册、登录、忘记密码、笔记创建与 AI 分析）
+- `domain`：用户、会话、密码令牌、笔记、摘要任务等业务规则
+- `infrastructure`：DB、Redis、SMTP、SSO provider、网页解析器、LLM provider 实现
 
 ### 3.3 单体模块拆分
 ```text
@@ -123,6 +132,48 @@ infra/
   - 若均不存在，自动创建管理员账号
 - 管理员账号与普通用户共用 `users` 表和登录流程
 
+### 4.6 学习笔记模型
+- `notes.id`: UUID
+- `notes.user_id`: FK -> users.id
+- `notes.source_url`: TEXT，原始链接
+- `notes.source_url_normalized`: TEXT，标准化链接（用于去重）
+- `notes.source_domain`: VARCHAR(255)
+- `notes.source_type`: VARCHAR(32)，`article` / `video` / `other`
+- `notes.source_title`: VARCHAR(512)，可空
+- `notes.source_author`: VARCHAR(255)，可空
+- `notes.source_published_at`: TIMESTAMPTZ，可空
+- `notes.source_excerpt`: TEXT，可空
+- `notes.note_body_md`: TEXT，默认空字符串
+- `notes.visibility`: VARCHAR(16)，`private` / `public`，默认 `private`
+- `notes.analysis_status`: VARCHAR(16)，`pending` / `running` / `succeeded` / `failed`
+- `notes.created_at` / `notes.updated_at`: TIMESTAMPTZ
+
+约束：
+- `(user_id, source_url_normalized)` 唯一，防止同用户重复导入同链接
+- `source_url` 仅允许 `http/https`
+
+### 4.7 AI 摘要记录模型
+- `note_ai_summaries.id`: UUID
+- `note_ai_summaries.note_id`: FK -> notes.id
+- `note_ai_summaries.status`: VARCHAR(16)，`succeeded` / `failed`
+- `note_ai_summaries.summary_text`: TEXT，可空（失败时为空）
+- `note_ai_summaries.key_points_json`: JSONB，可空
+- `note_ai_summaries.model_provider`: VARCHAR(64)
+- `note_ai_summaries.model_name`: VARCHAR(128)
+- `note_ai_summaries.model_version`: VARCHAR(128)，可空
+- `note_ai_summaries.prompt_version`: VARCHAR(32)
+- `note_ai_summaries.input_tokens`: INT，可空
+- `note_ai_summaries.output_tokens`: INT，可空
+- `note_ai_summaries.estimated_cost_usd`: NUMERIC(10,6)，可空
+- `note_ai_summaries.analyzed_at`: TIMESTAMPTZ
+- `note_ai_summaries.error_code`: VARCHAR(64)，可空
+- `note_ai_summaries.error_message`: TEXT，可空
+- `note_ai_summaries.created_at`: TIMESTAMPTZ
+
+说明：
+- `note_ai_summaries` 保留历史分析记录，笔记详情默认展示最近一次成功结果
+- AI 摘要结果为只读，用户侧不提供编辑入口
+
 ## 5. 鉴权与风控策略
 
 ### 5.1 Token 策略
@@ -144,6 +195,15 @@ Redis Key：
 - 忘记密码：`auth:pwd_reset:cooldown:{email}`，TTL 60 秒
 - 注册限流：`auth:register:ip:{ip}`，TTL 1 小时，阈值建议 20 次/小时
 - 注册邮箱验证码发送：`auth:register:email_code:cooldown:{email}`，TTL 60 秒
+
+### 5.4 学习笔记限流
+Redis Key：
+- `note:create:user:{user_id}`：创建频率，TTL 1 小时，阈值建议 30 次/小时
+- `note:reanalyze:user:{user_id}`：重试频率，TTL 10 分钟，阈值建议 10 次/10 分钟
+
+规则：
+- 超出阈值返回限流错误并提示稍后重试
+- 单次正文提取长度上限建议 20,000 字符，超出时截断并记录日志
 
 ## 6. API 设计（`/api/v1`）
 
@@ -205,6 +265,37 @@ Redis Key：
 - 可改字段：`nickname`, `ui_language`, `is_admin`
 - 约束：不允许当前登录管理员移除自己的管理员权限
 
+### 6.5 学习笔记接口
+1. `POST /notes`
+- 权限：登录用户
+- 入参：`source_url`, `visibility?`, `note_body_md?`
+- 逻辑：校验 URL、去重、创建笔记、触发 AI 分析任务
+- 出参：`note_id`, `analysis_status`
+
+2. `GET /notes`
+- 权限：登录用户
+- 参数：`status?`, `visibility?`, `keyword?`, `offset?`, `limit?`
+- 逻辑：返回当前用户笔记列表
+
+3. `GET /notes/{note_id}`
+- 权限：登录用户（仅本人笔记）
+- 返回：来源信息 + 最新 AI 摘要 + 学习心得 + 可见性 + 状态
+
+4. `PATCH /notes/{note_id}`
+- 权限：登录用户（仅本人笔记）
+- 可改字段：`note_body_md`, `visibility`
+- 禁改字段：`source_url`、AI 摘要字段
+
+5. `POST /notes/{note_id}/reanalyze`
+- 权限：登录用户（仅本人笔记）
+- 逻辑：触发新一轮 AI 分析，写入 `note_ai_summaries` 新记录
+- 出参：`analysis_status=running`
+
+6. `GET /notes/public/{note_id}`
+- 权限：匿名可访问
+- 约束：仅当笔记 `visibility=public` 时返回内容，否则返回 404
+- 返回：来源信息 + AI 摘要 + 学习心得（只读）
+
 ## 7. 前端页面与交互
 
 ### 7.1 路由规划
@@ -214,6 +305,10 @@ Redis Key：
 - `/admin/users`：管理系统用户管理页（管理员可见）
 - `/forgot-password`：忘记密码
 - `/reset-password?token=...`：重置密码
+- `/notes`：我的笔记列表
+- `/notes/new`：新建笔记
+- `/notes/{note_id}`：笔记详情与编辑
+- `/notes/public/{note_id}`：公开笔记详情
 
 ### 7.2 首页账号入口规则
 - 未登录：按钮文案 `登录/注册`
@@ -242,7 +337,24 @@ Redis Key：
 - 支持编辑用户：昵称、界面语言、管理员标记
 - 保存单行后即时刷新列表
 
-### 7.6 视觉与导航风格
+### 7.6 学习笔记页交互
+- 列表页（`/notes`）：
+  - 展示来源标题、域名、AI 状态、更新时间、可见性
+  - 支持状态筛选（`running/succeeded/failed`）与关键词搜索
+- 新建页（`/notes/new`）：
+  - 仅一个核心输入：外部链接
+  - 创建成功后跳转 `/notes/{note_id}`，并显示分析进度
+- 详情页（`/notes/{note_id}`）：
+  - 来源信息卡片（URL、标题、作者、发布时间）
+  - AI 摘要卡片（只读）
+  - 若分析失败，展示失败原因并提供“重试分析”按钮
+  - 学习心得编辑器（Markdown），支持手动保存
+  - 可见性切换（私有/公开）
+- 公开页（`/notes/public/{note_id}`）：
+  - 只读展示来源信息、AI 摘要、学习心得
+  - 不显示编辑与重试按钮
+
+### 7.7 视觉与导航风格
 - 页面设计参考 `design/*.html`。
 - 风格基调：极简主义，参考 NotebookLM、Medium、Notion。
 - 全站页面顶部保留全局导航条，统一品牌入口与关键导航。
@@ -261,6 +373,9 @@ Redis Key：
 - 登录失败与账号不存在返回统一错误
 - 关键接口开启 IP + 用户维度限流
 - 生产环境强制 HTTPS、开启安全响应头
+- 笔记 URL 仅允许 `http/https`，并阻断内网地址、防 SSRF 访问
+- Markdown 渲染做 XSS 过滤（白名单标签）
+- 公开笔记接口不返回用户邮箱等隐私字段
 
 ## 10. 可观测性与运维
 
@@ -271,6 +386,10 @@ Redis Key：
   - 登录锁定触发次数
   - 重置密码成功率
   - 邮件发送失败率
+  - 笔记解析成功率/失败率
+  - AI 摘要成功率/失败率
+  - AI 平均分析耗时（P50/P95）
+  - AI 调用 token 与成本统计
 
 ## 11. Docker Compose 方案
 
@@ -300,4 +419,10 @@ Redis Key：
 - 系统初始化会自动创建/提升管理员账号
 - 管理员登录后前端显示“管理系统”入口
 - 管理系统支持用户账号管理
+- 支持外部链接创建学习笔记并自动触发 AI 分析
+- AI 摘要记录模型信息、分析时间与状态，且用户不可直接编辑
+- 学习心得支持持续编辑保存
+- 支持笔记私有/公开切换，公开页只读访问
+- 支持解析失败或 AI 失败后重试分析
+- 自动聚合内容本期不设计，内容入口仅支持用户手动提供外部链接
 - 首页与核心页面风格对齐 `design/homepage.html`，并具备全局导航
