@@ -1,5 +1,6 @@
 import html
 import ipaddress
+import logging
 import re
 import urllib.parse
 import urllib.request
@@ -11,6 +12,8 @@ from redis import Redis
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.session import SessionLocal
+from app.infra.mimo_client import MimoAnalysisResult, MimoClient, MimoClientError
 from app.infra.redis_client import get_redis
 from app.models.note import Note
 from app.models.note_ai_summary import NoteAISummary
@@ -28,21 +31,49 @@ from app.schemas.note import (
     UpdateNoteRequest,
 )
 
+logger = logging.getLogger(__name__)
+
 ALLOWED_VISIBILITY = {"private", "public"}
 ALLOWED_ANALYSIS_STATUS = {"pending", "running", "succeeded", "failed"}
 MAX_NOTE_TAGS = 8
 MAX_NOTE_TAG_LENGTH = 24
+MAX_ANALYSIS_TAGS = 5
 WECHAT_HOST = "mp.weixin.qq.com"
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
 YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
-@dataclass
+class AnalysisError(Exception):
+    def __init__(self, *, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+@dataclass(slots=True)
 class SourceAnalysis:
     title: str | None
     summary_text: str
-    key_points: list[str]
+    tags: list[str]
+    model_provider: str | None
+    model_name: str | None
+    model_version: str | None
+    prompt_version: str | None
+    input_tokens: int | None
+    output_tokens: int | None
+    raw_response_json: dict | None
+
+
+def run_note_analysis_job(note_id: UUID) -> None:
+    db = SessionLocal()
+    try:
+        service = NoteService(db)
+        service.run_analysis_job(note_id=note_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("note analysis background job crashed", extra={"note_id": str(note_id)})
+    finally:
+        db.close()
 
 
 class NoteService:
@@ -50,6 +81,7 @@ class NoteService:
         self.db = db
         self.note_repo = NoteRepository(db)
         self.redis: Redis = get_redis()
+        self.mimo_client = MimoClient()
 
     def create_note(self, *, user: User, payload: CreateNoteRequest) -> CreateNoteResponse:
         self._enforce_create_limit(user.id)
@@ -79,7 +111,9 @@ class NoteService:
             note_body_md=note_body_md,
             visibility=visibility,
         )
-        self._run_analysis(note)
+        note.analysis_status = "pending"
+        note.analysis_error = None
+        self.note_repo.save(note)
         self.db.commit()
         self.db.refresh(note)
         return CreateNoteResponse(note=self._build_note_detail(note), created=True)
@@ -142,10 +176,102 @@ class NoteService:
         if not note:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="笔记不存在")
 
-        self._run_analysis(note)
-        self.db.commit()
-        self.db.refresh(note)
+        if note.analysis_status not in {"pending", "running"}:
+            note.analysis_status = "pending"
+            note.analysis_error = None
+            self.note_repo.save(note)
+            self.db.commit()
+            self.db.refresh(note)
+
         return self._build_note_detail(note)
+
+    def run_analysis_job(self, *, note_id: UUID) -> None:
+        note = self.note_repo.get_by_id(note_id)
+        if not note:
+            return
+
+        if note.analysis_status != "pending":
+            return
+
+        note.analysis_status = "running"
+        note.analysis_error = None
+        self.note_repo.save(note)
+        self.db.commit()
+
+        try:
+            result = self._analyze_source(note)
+        except AnalysisError as exc:
+            self._mark_analysis_failed(note_id=note.id, error_code=exc.code, error_message=exc.message)
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._mark_analysis_failed(
+                note_id=note.id,
+                error_code="analysis_error",
+                error_message=str(exc).strip() or "分析失败",
+            )
+            return
+
+        note = self.note_repo.get_by_id(note.id)
+        if not note:
+            return
+
+        note.source_title = (result.title or note.source_title or "")[:512] or None
+        if not note.tags_json and result.tags:
+            note.tags_json = result.tags
+        note.analysis_status = "succeeded"
+        note.analysis_error = None
+        self.note_repo.save(note)
+        self.note_repo.create_summary(
+            note_id=note.id,
+            status="succeeded",
+            output_title=result.title,
+            output_summary=result.summary_text,
+            output_tags=result.tags,
+            summary_text=result.summary_text,
+            key_points=result.tags,
+            model_provider=result.model_provider,
+            model_name=result.model_name,
+            model_version=result.model_version,
+            prompt_version=result.prompt_version,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            estimated_cost_usd=None,
+            raw_response_json=result.raw_response_json,
+            error_code=None,
+            error_message=None,
+        )
+        self.db.commit()
+
+    def _mark_analysis_failed(self, *, note_id: UUID, error_code: str, error_message: str) -> None:
+        self.db.rollback()
+        note = self.note_repo.get_by_id(note_id)
+        if not note:
+            return
+
+        message = (error_message or "分析失败").strip()[:500]
+        note.analysis_status = "failed"
+        note.analysis_error = message
+        self.note_repo.save(note)
+        self.note_repo.create_summary(
+            note_id=note.id,
+            status="failed",
+            output_title=None,
+            output_summary=None,
+            output_tags=None,
+            summary_text=None,
+            key_points=None,
+            model_provider=self._analysis_model_provider(),
+            model_name=self._analysis_model_name(),
+            model_version=settings.note_model_version,
+            prompt_version=settings.mimo_prompt_version,
+            input_tokens=None,
+            output_tokens=None,
+            estimated_cost_usd=None,
+            raw_response_json=None,
+            error_code=error_code,
+            error_message=message,
+        )
+        self.db.commit()
 
     def delete_note(self, *, user: User, note_id: UUID) -> GenericMessageResponse:
         note = self.note_repo.get_by_id_for_user(note_id=note_id, user_id=user.id)
@@ -207,82 +333,166 @@ class NoteService:
     def _build_summary_public(self, summary: NoteAISummary | None) -> NoteSummaryPublic | None:
         if not summary:
             return None
+
+        merged_summary = summary.output_summary or summary.summary_text
+        merged_tags = summary.output_tags_json or summary.key_points_json or []
+
         return NoteSummaryPublic(
             id=summary.id,
             status=summary.status,
-            summary_text=summary.summary_text,
-            key_points=summary.key_points_json or [],
+            title=summary.output_title,
+            summary_text=merged_summary,
+            tags=merged_tags,
             model_provider=summary.model_provider,
             model_name=summary.model_name,
             model_version=summary.model_version,
             analyzed_at=summary.analyzed_at,
+            error_code=summary.error_code,
             error_message=summary.error_message,
         )
 
-    def _run_analysis(self, note: Note) -> None:
-        note.analysis_status = "running"
-        note.analysis_error = None
-        self.note_repo.save(note)
-
-        try:
-            result = self._analyze_source(note.source_url, note.source_domain)
-            note.source_title = result.title or note.source_title
-            note.analysis_status = "succeeded"
-            note.analysis_error = None
-            self.note_repo.save(note)
-            self.note_repo.create_summary(
-                note_id=note.id,
-                status="succeeded",
-                summary_text=result.summary_text,
-                key_points=result.key_points,
-                model_provider=settings.note_model_provider,
-                model_name=settings.note_model_name,
-                model_version=settings.note_model_version,
-                error_message=None,
-            )
-            return
-        except Exception as exc:  # noqa: BLE001
-            error_message = str(exc).strip() or "分析失败"
-            note.analysis_status = "failed"
-            note.analysis_error = error_message[:500]
-            self.note_repo.save(note)
-            self.note_repo.create_summary(
-                note_id=note.id,
-                status="failed",
-                summary_text=None,
-                key_points=None,
-                model_provider=settings.note_model_provider,
-                model_name=settings.note_model_name,
-                model_version=settings.note_model_version,
-                error_message=note.analysis_error,
-            )
-
-    def _analyze_source(self, source_url: str, source_domain: str) -> SourceAnalysis:
-        title, content = self._fetch_source_content(source_url)
+    def _analyze_source(self, note: Note) -> SourceAnalysis:
+        source_title, content = self._fetch_source_content(note.source_url)
         if not content:
-            raise ValueError("来源内容为空，无法分析")
+            raise AnalysisError(code="empty_content", message="来源内容为空，无法分析")
 
+        if (settings.mimo_api_key or "").strip():
+            return self._analyze_source_with_mimo(
+                source_url=note.source_url,
+                source_domain=note.source_domain,
+                source_title=source_title,
+                content=content,
+            )
+
+        if settings.mimo_allow_local_fallback:
+            return self._analyze_source_local(
+                source_domain=note.source_domain,
+                source_title=source_title,
+                content=content,
+            )
+
+        raise AnalysisError(code="mimo_not_configured", message="MIMO API Key 未配置，无法执行内容分析")
+
+    def _analyze_source_with_mimo(
+        self,
+        *,
+        source_url: str,
+        source_domain: str,
+        source_title: str | None,
+        content: str,
+    ) -> SourceAnalysis:
+        try:
+            result = self.mimo_client.analyze(
+                source_url=source_url,
+                source_domain=source_domain,
+                source_title=source_title,
+                content=content,
+                repair_mode=False,
+            )
+        except MimoClientError as exc:
+            if exc.code != "invalid_output":
+                raise AnalysisError(code=exc.code, message=exc.message) from exc
+            try:
+                result = self.mimo_client.analyze(
+                    source_url=source_url,
+                    source_domain=source_domain,
+                    source_title=source_title,
+                    content=content,
+                    repair_mode=True,
+                )
+            except MimoClientError as second_exc:
+                raise AnalysisError(code=second_exc.code, message=second_exc.message) from second_exc
+
+        return self._build_source_analysis(
+            result=result,
+            fallback_title=source_title,
+            model_provider="xiaomi-mimo",
+            model_version=None,
+        )
+
+    def _analyze_source_local(self, *, source_domain: str, source_title: str | None, content: str) -> SourceAnalysis:
         summary_core = content[:260].strip()
-        summary_text = f"该内容来自 {source_domain}。核心信息：{summary_core}"
+        summary_text = f"该内容来自 {source_domain}。核心信息：{summary_core}"[:400]
 
-        key_points: list[str] = []
-        for piece in re.split(r"[。！？.!?]", content):
-            line = piece.strip()
-            if len(line) < 12:
-                continue
-            key_points.append(line[:96])
-            if len(key_points) >= 3:
-                break
-        if not key_points:
-            key_points = [summary_core[:96]]
-        while len(key_points) < 3:
-            key_points.append("建议结合原文阅读全文，避免断章取义。")
+        tags = self._extract_local_tags(content, source_domain)
+        if not tags:
+            tags = ["ai"]
 
         return SourceAnalysis(
-            title=title,
+            title=source_title,
             summary_text=summary_text,
-            key_points=key_points[:3],
+            tags=tags[:MAX_ANALYSIS_TAGS],
+            model_provider="local-fallback",
+            model_name=settings.note_model_name,
+            model_version=settings.note_model_version,
+            prompt_version=settings.mimo_prompt_version,
+            input_tokens=None,
+            output_tokens=None,
+            raw_response_json=None,
         )
+
+    def _build_source_analysis(
+        self,
+        *,
+        result: MimoAnalysisResult,
+        fallback_title: str | None,
+        model_provider: str,
+        model_version: str | None,
+    ) -> SourceAnalysis:
+        tags = result.tags[:MAX_ANALYSIS_TAGS]
+        if not tags:
+            raise AnalysisError(code="invalid_output", message="模型未返回有效标签")
+
+        summary_text = result.summary.strip()[:400]
+        if not summary_text:
+            raise AnalysisError(code="invalid_output", message="模型未返回有效摘要")
+
+        return SourceAnalysis(
+            title=(result.title or fallback_title or "")[:512] or None,
+            summary_text=summary_text,
+            tags=tags,
+            model_provider=model_provider,
+            model_name=result.model_name,
+            model_version=model_version,
+            prompt_version=settings.mimo_prompt_version,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            raw_response_json=result.raw_response,
+        )
+
+    def _extract_local_tags(self, content: str, source_domain: str) -> list[str]:
+        lowered = content.lower()
+        candidates: list[str] = []
+        seen: set[str] = set()
+
+        for item in ("ai", "llm", "agent", "rag", "prompt", "model", "openai", "anthropic", "mimo"):
+            if item in lowered and item not in seen:
+                seen.add(item)
+                candidates.append(item)
+
+        for part in re.split(r"[^a-z0-9_-]+", source_domain.lower()):
+            if len(part) < 2:
+                continue
+            if part in {"www", "com", "cn", "org", "net"}:
+                continue
+            if part in seen:
+                continue
+            seen.add(part)
+            candidates.append(part)
+            if len(candidates) >= MAX_ANALYSIS_TAGS:
+                break
+
+        return candidates[:MAX_ANALYSIS_TAGS]
+
+    def _analysis_model_provider(self) -> str:
+        if (settings.mimo_api_key or "").strip():
+            return "xiaomi-mimo"
+        return "local-fallback"
+
+    def _analysis_model_name(self) -> str:
+        if (settings.mimo_api_key or "").strip():
+            return settings.mimo_model_name
+        return settings.note_model_name
 
     def _fetch_source_content(self, source_url: str) -> tuple[str | None, str]:
         request = urllib.request.Request(
@@ -298,7 +508,7 @@ class NoteService:
                 raw = response.read(settings.note_fetch_max_bytes)
                 encoding = response.headers.get_content_charset() or "utf-8"
         except Exception as exc:  # noqa: BLE001
-            raise ValueError("来源链接暂不可访问，请稍后重试") from exc
+            raise AnalysisError(code="source_unreachable", message="来源链接暂不可访问，请稍后重试") from exc
 
         text = raw.decode(encoding, errors="ignore")
         title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text)

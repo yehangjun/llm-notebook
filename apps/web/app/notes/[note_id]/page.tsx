@@ -36,8 +36,21 @@ export default function NoteDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, noteId]);
 
-  async function fetchDetail() {
-    setLoading(true);
+  useEffect(() => {
+    if (!note || !["pending", "running"].includes(note.analysis_status)) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void fetchDetail({ silent: true });
+    }, 3000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.analysis_status, noteId]);
+
+  async function fetchDetail({ silent = false }: { silent?: boolean } = {}) {
+    if (!silent) {
+      setLoading(true);
+    }
     setError("");
     try {
       const data = await apiRequest<NoteDetail>(`/notes/${noteId}`, {}, true);
@@ -48,7 +61,9 @@ export default function NoteDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }
 
@@ -87,7 +102,7 @@ export default function NoteDetailPage() {
     try {
       const data = await apiRequest<NoteDetail>(`/notes/${noteId}/reanalyze`, { method: "POST" }, true);
       setNote(data);
-      setSuccess("已完成重试分析");
+      setSuccess("已触发重试分析");
     } catch (err) {
       setError(err instanceof Error ? err.message : "重试失败");
     } finally {
@@ -198,18 +213,27 @@ export default function NoteDetailPage() {
             {note.latest_summary && note.latest_summary.status === "failed" && (
               <div className="error">{note.latest_summary.error_message || "分析失败"}</div>
             )}
+            {note.latest_summary?.title && (
+              <div style={{ marginBottom: 8 }}>
+                <strong>分析标题：</strong>
+                {note.latest_summary.title}
+              </div>
+            )}
             {note.latest_summary?.summary_text && <p className="summary-block">{note.latest_summary.summary_text}</p>}
-            {!!note.latest_summary?.key_points?.length && (
-              <ul className="summary-points">
-                {note.latest_summary.key_points.map((point, idx) => (
-                  <li key={`${note.latest_summary?.id}-${idx}`}>{point}</li>
+            {!!note.latest_summary?.tags?.length && (
+              <div className="row" style={{ marginTop: 8 }}>
+                {note.latest_summary.tags.map((item) => (
+                  <span key={`${note.latest_summary?.id}-${item}`} className="pill">
+                    #{item}
+                  </span>
                 ))}
-              </ul>
+              </div>
             )}
             {note.latest_summary && (
               <div className="helper" style={{ fontSize: 13 }}>
                 模型：{note.latest_summary.model_provider || "-"} / {note.latest_summary.model_name || "-"} /{" "}
                 {note.latest_summary.model_version || "-"} · {new Date(note.latest_summary.analyzed_at).toLocaleString()}
+                {note.latest_summary.error_code ? ` · 错误码 ${note.latest_summary.error_code}` : ""}
               </div>
             )}
           </div>

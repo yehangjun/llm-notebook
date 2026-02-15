@@ -7,12 +7,14 @@ from pydantic import BaseModel, Field
 class NoteSummaryPublic(BaseModel):
     id: UUID
     status: str
+    title: str | None
     summary_text: str | None
-    key_points: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     model_provider: str | None
     model_name: str | None
     model_version: str | None
     analyzed_at: datetime
+    error_code: str | None
     error_message: str | None
 
 

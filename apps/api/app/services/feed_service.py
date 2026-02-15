@@ -203,8 +203,14 @@ class FeedService:
             latest_summary = self.note_repo.get_latest_summary(note.id)
             return FeedDetailResponse(
                 item=item,
-                summary_text=latest_summary.summary_text if latest_summary else None,
-                key_points=(latest_summary.key_points_json or []) if latest_summary else [],
+                summary_text=(
+                    (latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None
+                ),
+                key_points=(
+                    (latest_summary.output_tags_json or latest_summary.key_points_json or [])
+                    if latest_summary
+                    else []
+                ),
                 note_body_md=note.note_body_md,
                 analysis_error=(latest_summary.error_message if latest_summary else None) or note.analysis_error,
                 model_provider=latest_summary.model_provider if latest_summary else None,
@@ -268,7 +274,7 @@ class FeedService:
             if kind == "note":
                 note = raw  # type: ignore[assignment]
                 latest_summary = self.note_repo.get_latest_summary(note.id)
-                excerpt = latest_summary.summary_text if latest_summary else None
+                excerpt = (latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None
                 stats = note_stats.get(
                     note.id,
                     InteractionStats(like_count=0, bookmark_count=0, liked=False, bookmarked=False),

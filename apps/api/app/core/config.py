@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     note_model_provider: str = Field(default="prism", validation_alias="NOTE_MODEL_PROVIDER")
     note_model_name: str = Field(default="summary-lite", validation_alias="NOTE_MODEL_NAME")
     note_model_version: str = Field(default="v1", validation_alias="NOTE_MODEL_VERSION")
+    mimo_base_url: str | None = Field(default=None, validation_alias="MIMO_BASE_URL")
+    mimo_api_key: str | None = Field(default=None, validation_alias="MIMO_API_KEY")
+    mimo_model_name: str = Field(default="mimo-latest", validation_alias="MIMO_MODEL_NAME")
+    mimo_timeout_seconds: int = Field(default=30, validation_alias="MIMO_TIMEOUT_SECONDS")
+    mimo_max_retries: int = Field(default=3, validation_alias="MIMO_MAX_RETRIES")
+    mimo_prompt_version: str = Field(default="v1", validation_alias="MIMO_PROMPT_VERSION")
+    mimo_allow_local_fallback: bool = Field(default=True, validation_alias="MIMO_ALLOW_LOCAL_FALLBACK")
 
     admin_user_id: str = Field(default="admin", validation_alias="ADMIN_USER_ID")
     admin_email: str = Field(default="admin@llm-notebook.local", validation_alias="ADMIN_EMAIL")

@@ -23,7 +23,7 @@
 - 系统初始化自动创建管理员账号（与普通用户同表）
 - 管理员登录后显示管理入口，支持用户账号管理
 - 学习笔记闭环：外部链接导入 -> 按需解析 -> AI 摘要 -> 用户心得编辑 -> 公开分享
-- 信息流/收藏/轻社交能力在本期只保留产品目标描述，不在 V2 详细设计中落地
+- 信息聚合/信息流/收藏/轻社交采用规则型实现，优先交付可用闭环
 
 ### 1.3 非目标
 - 不做原创内容平台
@@ -38,10 +38,10 @@
 - 提供 AI 自动分析与总结能力，聚焦文字学习笔记记录。
 - 鼓励用户公开分享学习笔记。
 
-### 2.2 自动聚合内容（本期不设计）
-- 与 `IDEA.md` 对齐：V2 不设计自动聚合能力（不做全网爬取、RSS 订阅、定时抓取）。
-- 本期仅支持用户在创建笔记时手动输入外部链接。
-- 链接提交后执行“按需解析”：
+### 2.2 自动聚合内容
+- V2 支持一组预设来源的网站级自动聚合，不做复杂爬虫平台和运营后台。
+- 用户手动导入笔记链接与系统自动聚合条目共用“内容分析链路”。
+- 链接进入分析前执行“按需解析”：
   1. URL 校验（仅 `http/https`，拒绝内网地址）
   2. 页面抓取与正文提取
   3. 提取来源元数据（标题、作者/来源、发布时间、封面图）
@@ -152,12 +152,13 @@ infra/
 - `(user_id, source_url_normalized)` 唯一，防止同用户重复导入同链接
 - `source_url` 仅允许 `http/https`
 
-### 4.7 AI 摘要记录模型
+### 4.7 内容分析结果记录模型（学习笔记）
 - `note_ai_summaries.id`: UUID
 - `note_ai_summaries.note_id`: FK -> notes.id
 - `note_ai_summaries.status`: VARCHAR(16)，`succeeded` / `failed`
-- `note_ai_summaries.summary_text`: TEXT，可空（失败时为空）
-- `note_ai_summaries.key_points_json`: JSONB，可空
+- `note_ai_summaries.output_title`: VARCHAR(512)，可空
+- `note_ai_summaries.output_summary`: TEXT，可空（失败时为空）
+- `note_ai_summaries.output_tags_json`: JSONB，可空（成功时标签数量 1~5）
 - `note_ai_summaries.model_provider`: VARCHAR(64)
 - `note_ai_summaries.model_name`: VARCHAR(128)
 - `note_ai_summaries.model_version`: VARCHAR(128)，可空
@@ -165,14 +166,15 @@ infra/
 - `note_ai_summaries.input_tokens`: INT，可空
 - `note_ai_summaries.output_tokens`: INT，可空
 - `note_ai_summaries.estimated_cost_usd`: NUMERIC(10,6)，可空
+- `note_ai_summaries.raw_response_json`: JSONB，可空（便于问题排查）
 - `note_ai_summaries.analyzed_at`: TIMESTAMPTZ
 - `note_ai_summaries.error_code`: VARCHAR(64)，可空
 - `note_ai_summaries.error_message`: TEXT，可空
 - `note_ai_summaries.created_at`: TIMESTAMPTZ
 
 说明：
-- `note_ai_summaries` 保留历史分析记录，笔记详情默认展示最近一次成功结果
-- AI 摘要结果为只读，用户侧不提供编辑入口
+- `note_ai_summaries` 保留历史分析记录，笔记详情默认展示最近一次成功结果。
+- 内容分析输出（标题/摘要/标签）均为只读，用户侧不提供编辑入口。
 
 ## 5. 鉴权与风控策略
 
@@ -420,9 +422,139 @@ Redis Key：
 - 管理员登录后前端显示“管理系统”入口
 - 管理系统支持用户账号管理
 - 支持外部链接创建学习笔记并自动触发 AI 分析
-- AI 摘要记录模型信息、分析时间与状态，且用户不可直接编辑
+- 内容分析输出包含标题/摘要/标签（标签不超过 5 个），且用户不可直接编辑
 - 学习心得支持持续编辑保存
 - 支持笔记私有/公开切换，公开页只读访问
 - 支持解析失败或 AI 失败后重试分析
-- 自动聚合内容本期不设计，内容入口仅支持用户手动提供外部链接
+- 预设信息源可自动生成聚合条目，且可复用同一内容分析链路
+- 内容分析服务接入 Xiaomi MIMO（OpenAI 风格接口）
 - 首页与核心页面风格对齐 `design/homepage.html`，并具备全局导航
+
+## 13. 内容分析详细设计（本轮新增）
+
+### 13.1 设计目标
+- 对齐 `SPEC.md`：给定链接后输出 `标题`、`摘要`、`标签`（不超过 5 个）。
+- 同时覆盖两类对象：学习笔记（`notes`）和信息聚合条目（`aggregate_items`）。
+- 分析流程采用统一状态机：`pending -> running -> succeeded/failed`。
+- 使用 Xiaomi MIMO API（OpenAI 风格接口）作为模型服务。
+
+### 13.2 输入输出契约
+输入（内部）：
+- `target_type`: `note` / `aggregate_item`
+- `target_id`: UUID
+- `source_url_normalized`: 标准化链接
+- `source_domain`: 来源域名
+- `fetch_text`: 抓取并清洗后的正文（上限 20,000 字符）
+- `fetch_title`: 抓取到的原始标题（可空）
+- `trigger_type`: `create` / `manual_retry` / `scheduled_refresh`
+
+输出（模型）：
+- `title`: 字符串，建议上限 120 字符
+- `summary`: 字符串，建议上限 400 字符
+- `tags`: 字符串数组，1~5 个，去重后入库
+
+输出校验规则：
+- `tags` 超过 5 个时按模型返回顺序截断前 5 个。
+- `tags` 做 trim + 小写归一（中文保持原样），空值剔除。
+- 输出字段缺失或类型错误判定为 `invalid_output`，可触发一次结构化修复重试。
+
+### 13.3 处理流程
+1. 触发阶段：
+- 新建笔记、手动重试、聚合刷新时创建分析任务，目标对象状态置为 `pending`。
+
+2. 抓取阶段：
+- 执行 URL 安全校验（协议、内网/本地地址拦截、超时、响应体大小限制）。
+- 抓取 HTML 并做正文提取，失败则写入 `failed` 与错误码。
+
+3. 模型阶段：
+- 按 `prompt_version` 组装系统提示词和用户输入。
+- 调用 Xiaomi MIMO Chat Completions。
+- 要求结构化输出 `title/summary/tags`，并执行返回结果校验。
+
+4. 持久化阶段：
+- 成功：写入分析记录，更新对象状态 `succeeded`，清空错误信息。
+- 失败：写入失败记录，对象状态置 `failed` 并保留错误码/错误消息。
+
+### 13.4 状态机与重试
+- 初始：`pending`
+- Worker 领取任务：`pending -> running`
+- 任务完成：`running -> succeeded` 或 `running -> failed`
+- 手动重试：`failed -> pending`（新建一次任务与分析记录）
+
+自动重试策略（仅瞬时错误）：
+- 错误类型：网络超时、DNS 异常、MIMO `429/5xx`
+- 最大自动重试次数：3 次（指数退避：30s/120s/300s）
+- 非瞬时错误（如 URL 非法、正文为空、内容不可访问）不自动重试
+
+幂等规则：
+- 同一对象在 `pending/running` 期间不重复入队。
+- 重试必须生成新 attempt，历史记录只追加不覆盖。
+
+### 13.5 数据模型增补
+新增任务表（建议）：`content_analysis_tasks`
+- 核心字段：`id`, `target_type`, `target_id`, `status`, `trigger_type`, `attempt`, `available_at`, `started_at`, `finished_at`, `error_code`, `error_message`, `created_at`
+- 关键索引：`(status, available_at)`、`(target_type, target_id, created_at desc)`
+
+新增统一结果表（建议）：`content_analysis_results`
+- 核心字段：`id`, `task_id`, `target_type`, `target_id`, `status`, `output_title`, `output_summary`, `output_tags_json`, `model_provider`, `model_name`, `model_version`, `prompt_version`, `input_tokens`, `output_tokens`, `estimated_cost_usd`, `raw_response_json`, `error_code`, `error_message`, `analyzed_at`, `created_at`
+- 说明：`notes` 与 `aggregate_items` 共用该表，避免双套历史表结构。
+
+现有模型兼容策略：
+- `notes.analysis_status/analysis_error` 保留，作为“当前状态”快照字段。
+- `aggregate_items.analysis_status/analysis_error/summary_text/tags_json` 保留，短期由结果表回写最新值。
+- `note_ai_summaries` 在迁移窗口内可并行保留；最终收敛到统一结果表。
+
+### 13.6 Xiaomi MIMO 接入设计
+配置项（环境变量）：
+- `MIMO_BASE_URL`（必填，由部署环境配置）
+- `MIMO_API_KEY`（必填）
+- `MIMO_MODEL_NAME`（必填）
+- `MIMO_TIMEOUT_SECONDS`（默认 30）
+- `MIMO_MAX_RETRIES`（默认 3）
+
+调用约定：
+- 路径：`POST /v1/chat/completions`
+- 鉴权：`Authorization: Bearer <MIMO_API_KEY>`
+- 输出：强制 JSON 结构，便于服务端做 Schema 校验
+
+### 13.7 API 与页面约定
+接口层：
+- `POST /notes`：创建后立即返回 `analysis_status=pending|running`，前端轮询详情状态。
+- `POST /notes/{note_id}/reanalyze`：仅本人可触发，幂等返回当前状态。
+- 聚合刷新接口（管理员/任务触发）复用同一分析编排器。
+
+页面层：
+- 列表展示 `analysis_status`。
+- 详情展示只读的 `title/summary/tags`（来自最近一次成功分析）。
+- `failed` 状态时显示可重试按钮与最近错误提示。
+
+### 13.8 可观测性与告警
+新增指标：
+- `content_analysis_task_total{target_type,status}`
+- `content_analysis_duration_ms{target_type}`（P50/P95/P99）
+- `content_analysis_retry_total{reason}`
+- `content_analysis_invalid_output_total`
+- `content_analysis_token_usage_total{model}`
+
+日志字段补充：
+- `analysis_task_id`, `target_type`, `target_id`, `trigger_type`, `attempt`, `model_name`, `prompt_version`, `error_code`
+
+告警建议：
+- 10 分钟窗口失败率 > 20%
+- `running` 超时任务数持续增长
+- MIMO `429` 比例异常升高
+
+### 13.9 分阶段落地建议
+Phase 1（最小可用）：
+- 接入 MIMO + 输出结构化校验
+- 覆盖学习笔记分析（创建/重试）
+- 打通 `pending/running/succeeded/failed` 全链路
+
+Phase 2（一致性增强）：
+- 统一任务表与结果表
+- 聚合条目接入同一编排器
+- 增加自动重试与超时回收任务
+
+Phase 3（质量优化）：
+- Prompt A/B 与标签质量评估
+- 分域名策略（公众号/YouTube/博客）定制抽取与提示词

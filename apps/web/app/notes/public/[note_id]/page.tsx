@@ -110,18 +110,27 @@ export default function PublicNotePage() {
             {note.latest_summary && note.latest_summary.status === "failed" && (
               <div className="error">{note.latest_summary.error_message || "分析失败"}</div>
             )}
+            {note.latest_summary?.title && (
+              <div style={{ marginBottom: 8 }}>
+                <strong>分析标题：</strong>
+                {note.latest_summary.title}
+              </div>
+            )}
             {note.latest_summary?.summary_text && <p className="summary-block">{note.latest_summary.summary_text}</p>}
-            {!!note.latest_summary?.key_points?.length && (
-              <ul className="summary-points">
-                {note.latest_summary.key_points.map((point, idx) => (
-                  <li key={`${note.latest_summary?.id}-${idx}`}>{point}</li>
+            {!!note.latest_summary?.tags?.length && (
+              <div className="row" style={{ marginTop: 8 }}>
+                {note.latest_summary.tags.map((item) => (
+                  <span key={`${note.latest_summary?.id}-${item}`} className="pill">
+                    #{item}
+                  </span>
                 ))}
-              </ul>
+              </div>
             )}
             {note.latest_summary && (
               <div className="helper" style={{ fontSize: 13 }}>
                 模型：{note.latest_summary.model_provider || "-"} / {note.latest_summary.model_name || "-"} /{" "}
                 {note.latest_summary.model_version || "-"} · {new Date(note.latest_summary.analyzed_at).toLocaleString()}
+                {note.latest_summary.error_code ? ` · 错误码 ${note.latest_summary.error_code}` : ""}
               </div>
             )}
           </div>

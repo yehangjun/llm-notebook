@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session, joinedload
@@ -50,6 +51,10 @@ class NoteRepository:
 
     def get_by_id_for_user(self, *, note_id: uuid.UUID, user_id: uuid.UUID) -> Note | None:
         stmt = select(Note).where(Note.id == note_id, Note.user_id == user_id, Note.is_deleted.is_(False))
+        return self.db.scalar(stmt)
+
+    def get_by_id(self, note_id: uuid.UUID) -> Note | None:
+        stmt = select(Note).where(Note.id == note_id, Note.is_deleted.is_(False))
         return self.db.scalar(stmt)
 
     def get_public_by_id(self, note_id: uuid.UUID) -> Note | None:
@@ -182,21 +187,39 @@ class NoteRepository:
         *,
         note_id: uuid.UUID,
         status: str,
+        output_title: str | None,
+        output_summary: str | None,
+        output_tags: list[str] | None,
         summary_text: str | None,
         key_points: list[str] | None,
         model_provider: str | None,
         model_name: str | None,
         model_version: str | None,
+        prompt_version: str | None,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        estimated_cost_usd: Decimal | None,
+        raw_response_json: dict | None,
+        error_code: str | None,
         error_message: str | None,
     ) -> NoteAISummary:
         summary = NoteAISummary(
             note_id=note_id,
             status=status,
+            output_title=output_title,
+            output_summary=output_summary,
+            output_tags_json=output_tags,
             summary_text=summary_text,
             key_points_json=key_points,
             model_provider=model_provider,
             model_name=model_name,
             model_version=model_version,
+            prompt_version=prompt_version,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=estimated_cost_usd,
+            raw_response_json=raw_response_json,
+            error_code=error_code,
             error_message=error_message,
         )
         self.db.add(summary)

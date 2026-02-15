@@ -1,12 +1,14 @@
 export type NoteSummaryPublic = {
   id: string;
   status: "succeeded" | "failed";
+  title: string | null;
   summary_text: string | null;
-  key_points: string[];
+  tags: string[];
   model_provider: string | null;
   model_name: string | null;
   model_version: string | null;
   analyzed_at: string;
+  error_code: string | null;
   error_message: string | null;
 };
 

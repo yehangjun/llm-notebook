@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -15,7 +15,7 @@ from app.schemas.note import (
     PublicNoteDetail,
     UpdateNoteRequest,
 )
-from app.services.note_service import NoteService
+from app.services.note_service import NoteService, run_note_analysis_job
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -23,11 +23,15 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 @router.post("", response_model=CreateNoteResponse)
 def create_note(
     payload: CreateNoteRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     service = NoteService(db)
-    return service.create_note(user=current_user, payload=payload)
+    result = service.create_note(user=current_user, payload=payload)
+    if result.created:
+        background_tasks.add_task(run_note_analysis_job, result.note.id)
+    return result
 
 
 @router.get("", response_model=NoteListResponse)
@@ -81,11 +85,15 @@ def update_note(
 @router.post("/{note_id}/reanalyze", response_model=NoteDetail)
 def reanalyze_note(
     note_id: UUID,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     service = NoteService(db)
-    return service.reanalyze(user=current_user, note_id=note_id)
+    detail = service.reanalyze(user=current_user, note_id=note_id)
+    if detail.analysis_status == "pending":
+        background_tasks.add_task(run_note_analysis_job, detail.id)
+    return detail
 
 
 @router.delete("/{note_id}", response_model=GenericMessageResponse)
