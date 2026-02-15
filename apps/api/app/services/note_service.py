@@ -12,6 +12,7 @@ from redis import Redis
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.url_blacklist import CATEGORY_LABELS, match_blacklisted_host
 from app.db.session import SessionLocal
 from app.infra.mimo_client import MimoAnalysisResult, MimoClient, MimoClientError
 from app.infra.redis_client import get_redis
@@ -540,6 +541,7 @@ class NoteService:
         if not host:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="链接格式不合法")
         self._ensure_public_host(host)
+        self._ensure_supported_host(host)
 
         if host == WECHAT_HOST:
             return self._normalize_wechat_url(source_url, parsed, port)
@@ -638,6 +640,17 @@ class NoteService:
             or ip.is_unspecified
         ):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持内网或本地链接")
+
+    def _ensure_supported_host(self, host: str) -> None:
+        match = match_blacklisted_host(host)
+        if not match:
+            return
+
+        category_label = CATEGORY_LABELS.get(match.category, "受限网站")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"暂不支持该网站链接（{category_label}）：{match.matched_rule}",
+        )
 
     def _normalize_note_body(self, value: str | None) -> str:
         note_body = (value or "").strip()
