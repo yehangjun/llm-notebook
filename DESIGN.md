@@ -427,7 +427,7 @@ Redis Key：
 - 支持笔记私有/公开切换，公开页只读访问
 - 支持解析失败或 AI 失败后重试分析
 - 预设信息源可自动生成聚合条目，且可复用同一内容分析链路
-- 内容分析服务接入 Xiaomi MIMO（OpenAI 风格接口）
+- 内容分析服务接入 OpenAI-compatible 大模型 API
 - 首页与核心页面风格对齐 `design/homepage.html`，并具备全局导航
 
 ## 13. 内容分析详细设计（本轮新增）
@@ -436,7 +436,7 @@ Redis Key：
 - 对齐 `SPEC.md`：给定链接后输出 `标题`、`摘要`、`标签`（不超过 5 个）。
 - 同时覆盖两类对象：学习笔记（`notes`）和信息聚合条目（`aggregate_items`）。
 - 分析流程采用统一状态机：`pending -> running -> succeeded/failed`。
-- 使用 Xiaomi MIMO API（OpenAI 风格接口）作为模型服务。
+- 使用 OpenAI-compatible 大模型 API 作为模型服务。
 
 ### 13.2 输入输出契约
 输入（内部）：
@@ -468,7 +468,7 @@ Redis Key：
 
 3. 模型阶段：
 - 按 `prompt_version` 组装系统提示词和用户输入。
-- 调用 Xiaomi MIMO Chat Completions。
+- 调用 OpenAI-compatible Chat Completions。
 - 要求结构化输出 `title/summary/tags`，并执行返回结果校验。
 
 4. 持久化阶段：
@@ -482,7 +482,7 @@ Redis Key：
 - 手动重试：`failed -> pending`（新建一次任务与分析记录）
 
 自动重试策略（仅瞬时错误）：
-- 错误类型：网络超时、DNS 异常、MIMO `429/5xx`
+- 错误类型：网络超时、DNS 异常、模型服务 `429/5xx`
 - 最大自动重试次数：3 次（指数退避：30s/120s/300s）
 - 非瞬时错误（如 URL 非法、正文为空、内容不可访问）不自动重试
 
@@ -504,18 +504,21 @@ Redis Key：
 - `aggregate_items.analysis_status/analysis_error/summary_text/tags_json` 保留，短期由结果表回写最新值。
 - `note_ai_summaries` 在迁移窗口内可并行保留；最终收敛到统一结果表。
 
-### 13.6 Xiaomi MIMO 接入设计
+### 13.6 OpenAI-compatible 模型服务接入设计
 配置项（环境变量）：
-- `MIMO_BASE_URL`（必填，由部署环境配置）
-- `MIMO_API_KEY`（必填）
-- `MIMO_MODEL_NAME`（必填）
-- `MIMO_TIMEOUT_SECONDS`（默认 30）
-- `MIMO_MAX_RETRIES`（默认 3）
+- `LLM_PROVIDER_NAME`（可选，默认 `openai-compatible`）
+- `LLM_BASE_URL`（必填，由部署环境配置）
+- `LLM_API_KEY`（必填）
+- `LLM_MODEL_NAME`（必填）
+- `LLM_TIMEOUT_SECONDS`（默认 30）
+- `LLM_MAX_RETRIES`（默认 3）
+- `LLM_PROMPT_VERSION`（默认 `v1`）
 
 调用约定：
 - 路径：`POST /v1/chat/completions`
-- 鉴权：`Authorization: Bearer <MIMO_API_KEY>`
+- 鉴权：`Authorization: Bearer <LLM_API_KEY>`
 - 输出：强制 JSON 结构，便于服务端做 Schema 校验
+- 兼容：历史 `MIMO_*` 变量可继续作为别名读取，建议逐步迁移到 `LLM_*`
 
 ### 13.7 API 与页面约定
 接口层：
@@ -542,11 +545,11 @@ Redis Key：
 告警建议：
 - 10 分钟窗口失败率 > 20%
 - `running` 超时任务数持续增长
-- MIMO `429` 比例异常升高
+- 模型服务 `429` 比例异常升高
 
 ### 13.9 分阶段落地建议
 Phase 1（最小可用）：
-- 接入 MIMO + 输出结构化校验
+- 接入 OpenAI-compatible 模型服务 + 输出结构化校验
 - 覆盖学习笔记分析（创建/重试）
 - 打通 `pending/running/succeeded/failed` 全链路
 

@@ -78,3 +78,13 @@ alembic revision -m "your migration name"
   - `REGISTER_EMAIL_CODE_TTL_SECONDS`
   - `REGISTER_EMAIL_CODE_COOLDOWN_SECONDS`
   - `REGISTER_EMAIL_CODE_MAX_ATTEMPTS`
+- 内容分析模型相关环境变量（OpenAI-compatible）：
+  - `LLM_PROVIDER_NAME`（默认 `openai-compatible`）
+  - `LLM_BASE_URL`
+  - `LLM_API_KEY`
+  - `LLM_MODEL_NAME`
+  - `LLM_TIMEOUT_SECONDS`
+  - `LLM_MAX_RETRIES`
+  - `LLM_PROMPT_VERSION`
+  - `LLM_ALLOW_LOCAL_FALLBACK`
+- 历史 `MIMO_*` 变量仍可作为兼容别名读取，建议迁移到 `LLM_*`。

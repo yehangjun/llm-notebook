@@ -8,6 +8,7 @@ import { clearAuth, UserPublic } from "../../../lib/auth";
 import { CreateNoteResponse } from "../../../lib/notes";
 
 type Visibility = "private" | "public";
+const MAX_NOTE_TAGS = 5;
 
 export default function NewNotePage() {
   const router = useRouter();
@@ -92,7 +93,7 @@ export default function NewNotePage() {
                 onChange={(e) => setTagInput(e.target.value)}
               />
               <div className="helper" style={{ marginTop: 6 }}>
-                使用英文逗号或空格分隔，支持小写字母/数字/下划线/中划线。
+                使用英文逗号或空格分隔，最多 5 个，支持小写字母/数字/下划线/中划线。
               </div>
             </div>
             <div className="field">
@@ -121,5 +122,5 @@ function parseTags(input: string): string[] {
     .split(/[,\s，]+/)
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-  return [...new Set(chunks)];
+  return [...new Set(chunks)].slice(0, MAX_NOTE_TAGS);
 }

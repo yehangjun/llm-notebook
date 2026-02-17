@@ -9,6 +9,7 @@ import { clearAuth, UserPublic } from "../../../lib/auth";
 import { NoteDetail } from "../../../lib/notes";
 
 type Visibility = "private" | "public";
+const MAX_NOTE_TAGS = 5;
 
 export default function NoteDetailPage() {
   const params = useParams<{ note_id: string }>();
@@ -254,6 +255,9 @@ export default function NoteDetailPage() {
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
               />
+              <div className="helper" style={{ marginTop: 6 }}>
+                使用英文逗号或空格分隔，最多 5 个，支持小写字母/数字/下划线/中划线。
+              </div>
             </div>
             {note.visibility === "public" && (
               <div className="helper">
@@ -296,5 +300,5 @@ function parseTags(input: string): string[] {
     .split(/[,\s，]+/)
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-  return [...new Set(chunks)];
+  return [...new Set(chunks)].slice(0, MAX_NOTE_TAGS);
 }

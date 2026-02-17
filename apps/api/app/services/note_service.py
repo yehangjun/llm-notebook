@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.url_blacklist import CATEGORY_LABELS, match_blacklisted_host
 from app.db.session import SessionLocal
-from app.infra.mimo_client import MimoAnalysisResult, MimoClient, MimoClientError
+from app.infra.openai_compatible_client import (
+    OpenAICompatibleAnalysisResult,
+    OpenAICompatibleClient,
+    OpenAICompatibleClientError,
+)
 from app.infra.redis_client import get_redis
 from app.models.note import Note
 from app.models.note_ai_summary import NoteAISummary
@@ -36,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_VISIBILITY = {"private", "public"}
 ALLOWED_ANALYSIS_STATUS = {"pending", "running", "succeeded", "failed"}
-MAX_NOTE_TAGS = 8
+MAX_NOTE_TAGS = 5
 MAX_NOTE_TAG_LENGTH = 24
 MAX_ANALYSIS_TAGS = 5
 WECHAT_HOST = "mp.weixin.qq.com"
@@ -82,7 +86,7 @@ class NoteService:
         self.db = db
         self.note_repo = NoteRepository(db)
         self.redis: Redis = get_redis()
-        self.mimo_client = MimoClient()
+        self.llm_client = OpenAICompatibleClient()
 
     def create_note(self, *, user: User, payload: CreateNoteRequest) -> CreateNoteResponse:
         self._enforce_create_limit(user.id)
@@ -263,8 +267,8 @@ class NoteService:
             key_points=None,
             model_provider=self._analysis_model_provider(),
             model_name=self._analysis_model_name(),
-            model_version=settings.note_model_version,
-            prompt_version=settings.mimo_prompt_version,
+            model_version=self._analysis_model_version(),
+            prompt_version=settings.llm_prompt_version,
             input_tokens=None,
             output_tokens=None,
             estimated_cost_usd=None,
@@ -357,24 +361,24 @@ class NoteService:
         if not content:
             raise AnalysisError(code="empty_content", message="来源内容为空，无法分析")
 
-        if (settings.mimo_api_key or "").strip():
-            return self._analyze_source_with_mimo(
+        if (settings.llm_api_key or "").strip():
+            return self._analyze_source_with_llm(
                 source_url=note.source_url,
                 source_domain=note.source_domain,
                 source_title=source_title,
                 content=content,
             )
 
-        if settings.mimo_allow_local_fallback:
+        if settings.llm_allow_local_fallback:
             return self._analyze_source_local(
                 source_domain=note.source_domain,
                 source_title=source_title,
                 content=content,
             )
 
-        raise AnalysisError(code="mimo_not_configured", message="MIMO API Key 未配置，无法执行内容分析")
+        raise AnalysisError(code="llm_not_configured", message="模型 API Key 未配置，无法执行内容分析")
 
-    def _analyze_source_with_mimo(
+    def _analyze_source_with_llm(
         self,
         *,
         source_url: str,
@@ -383,31 +387,31 @@ class NoteService:
         content: str,
     ) -> SourceAnalysis:
         try:
-            result = self.mimo_client.analyze(
+            result = self.llm_client.analyze(
                 source_url=source_url,
                 source_domain=source_domain,
                 source_title=source_title,
                 content=content,
                 repair_mode=False,
             )
-        except MimoClientError as exc:
+        except OpenAICompatibleClientError as exc:
             if exc.code != "invalid_output":
                 raise AnalysisError(code=exc.code, message=exc.message) from exc
             try:
-                result = self.mimo_client.analyze(
+                result = self.llm_client.analyze(
                     source_url=source_url,
                     source_domain=source_domain,
                     source_title=source_title,
                     content=content,
                     repair_mode=True,
                 )
-            except MimoClientError as second_exc:
+            except OpenAICompatibleClientError as second_exc:
                 raise AnalysisError(code=second_exc.code, message=second_exc.message) from second_exc
 
         return self._build_source_analysis(
             result=result,
             fallback_title=source_title,
-            model_provider="xiaomi-mimo",
+            model_provider=settings.llm_provider_name,
             model_version=None,
         )
 
@@ -426,7 +430,7 @@ class NoteService:
             model_provider="local-fallback",
             model_name=settings.note_model_name,
             model_version=settings.note_model_version,
-            prompt_version=settings.mimo_prompt_version,
+            prompt_version=settings.llm_prompt_version,
             input_tokens=None,
             output_tokens=None,
             raw_response_json=None,
@@ -435,7 +439,7 @@ class NoteService:
     def _build_source_analysis(
         self,
         *,
-        result: MimoAnalysisResult,
+        result: OpenAICompatibleAnalysisResult,
         fallback_title: str | None,
         model_provider: str,
         model_version: str | None,
@@ -455,7 +459,7 @@ class NoteService:
             model_provider=model_provider,
             model_name=result.model_name,
             model_version=model_version,
-            prompt_version=settings.mimo_prompt_version,
+            prompt_version=settings.llm_prompt_version,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             raw_response_json=result.raw_response,
@@ -466,7 +470,7 @@ class NoteService:
         candidates: list[str] = []
         seen: set[str] = set()
 
-        for item in ("ai", "llm", "agent", "rag", "prompt", "model", "openai", "anthropic", "mimo"):
+        for item in ("ai", "llm", "agent", "rag", "prompt", "model", "openai", "anthropic", "gpt"):
             if item in lowered and item not in seen:
                 seen.add(item)
                 candidates.append(item)
@@ -486,14 +490,19 @@ class NoteService:
         return candidates[:MAX_ANALYSIS_TAGS]
 
     def _analysis_model_provider(self) -> str:
-        if (settings.mimo_api_key or "").strip():
-            return "xiaomi-mimo"
+        if (settings.llm_api_key or "").strip():
+            return settings.llm_provider_name
         return "local-fallback"
 
     def _analysis_model_name(self) -> str:
-        if (settings.mimo_api_key or "").strip():
-            return settings.mimo_model_name
+        if (settings.llm_api_key or "").strip():
+            return settings.llm_model_name
         return settings.note_model_name
+
+    def _analysis_model_version(self) -> str | None:
+        if (settings.llm_api_key or "").strip():
+            return None
+        return settings.note_model_version
 
     def _fetch_source_content(self, source_url: str) -> tuple[str | None, str]:
         request = urllib.request.Request(
