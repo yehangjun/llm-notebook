@@ -165,6 +165,12 @@ export default function FeedItemDetailPage() {
               <strong>状态：</strong>
               <span className={`pill status-${item.analysis_status}`}>{renderStatus(item.analysis_status)}</span>
             </div>
+            {item.published_at && (
+              <div>
+                <strong>发布时间：</strong>
+                {new Date(item.published_at).toLocaleString()}
+              </div>
+            )}
             {!!item.tags.length && (
               <div className="row">
                 {item.tags.map((tagItem) => (

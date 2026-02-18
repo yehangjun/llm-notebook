@@ -130,6 +130,7 @@ class SocialService:
             .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
             .where(
                 AggregateItem.id == aggregate_id,
+                AggregateItem.analysis_status == "succeeded",
                 SourceCreator.is_active.is_(True),
                 SourceCreator.is_deleted.is_(False),
             )
@@ -166,6 +167,7 @@ class SocialService:
             .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
             .where(
                 AggregateItem.id == aggregate_id,
+                AggregateItem.analysis_status == "succeeded",
                 SourceCreator.is_active.is_(True),
                 SourceCreator.is_deleted.is_(False),
             )

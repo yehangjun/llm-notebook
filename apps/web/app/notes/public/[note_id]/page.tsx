@@ -141,7 +141,8 @@ export default function PublicNotePage() {
           </div>
 
           <div className="helper" style={{ marginTop: 12 }}>
-            创建于 {new Date(note.created_at).toLocaleString()} · 更新于 {new Date(note.updated_at).toLocaleString()} ·
+            创建于 {new Date(note.created_at).toLocaleString()} · 发布时间{" "}
+            {new Date(note.latest_summary?.published_at ?? note.updated_at).toLocaleString()} ·
             分享链接：
             <Link href={`/notes/public/${note.id}`} style={{ marginLeft: 6 }}>
               /notes/public/{note.id}

@@ -8,6 +8,7 @@ class NoteSummaryPublic(BaseModel):
     id: UUID
     status: str
     title: str | None
+    published_at: datetime | None
     summary_text: str | None
     tags: list[str] = Field(default_factory=list)
     model_provider: str | None
@@ -23,6 +24,7 @@ class NoteListItem(BaseModel):
     source_url: str
     source_domain: str
     source_title: str | None
+    published_at: datetime | None
     tags: list[str] = Field(default_factory=list)
     visibility: str
     analysis_status: str

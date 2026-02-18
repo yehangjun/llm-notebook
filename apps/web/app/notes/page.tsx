@@ -117,6 +117,10 @@ export default function NotesPage() {
     router.push(`/feed/items/${item.item_type}/${item.id}`);
   }
 
+  function formatPublishedAt(item: { published_at: string | null; updated_at: string }) {
+    return new Date(item.published_at ?? item.updated_at).toLocaleString();
+  }
+
   return (
     <main className="page">
       <div className="container">
@@ -176,7 +180,7 @@ export default function NotesPage() {
                   <div>
                     <h3 style={{ margin: "0 0 6px" }}>{note.source_title || note.source_url}</h3>
                     <div className="helper" style={{ fontSize: 13 }}>
-                      {note.source_domain} · 更新于 {new Date(note.updated_at).toLocaleString()}
+                      {note.source_domain} · 发布时间 {formatPublishedAt(note)}
                     </div>
                     {!!note.tags.length && (
                       <div className="row" style={{ marginTop: 8 }}>
@@ -207,7 +211,7 @@ export default function NotesPage() {
                   <div>
                     <h3 style={{ margin: "0 0 6px" }}>{item.source_title || item.source_url}</h3>
                     <div className="helper" style={{ fontSize: 13 }}>
-                      {item.creator_name} · {item.source_domain} · {new Date(item.updated_at).toLocaleString()}
+                      {item.creator_name} · {item.source_domain} · 发布时间 {formatPublishedAt(item)}
                     </div>
                     {!!item.tags.length && (
                       <div className="row" style={{ marginTop: 8 }}>

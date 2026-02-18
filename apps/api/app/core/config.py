@@ -84,6 +84,10 @@ class Settings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("LLM_ALLOW_LOCAL_FALLBACK", "MIMO_ALLOW_LOCAL_FALLBACK"),
     )
+    network_proxy_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("NETWORK_PROXY_URL", "GLOBAL_PROXY_URL"),
+    )
     aggregation_max_items_per_source: int = Field(default=5, validation_alias="AGGREGATION_MAX_ITEMS_PER_SOURCE")
     aggregation_use_model_analysis: bool = Field(default=False, validation_alias="AGGREGATION_USE_MODEL_ANALYSIS")
     aggregation_refresh_job_ttl_seconds: int = Field(

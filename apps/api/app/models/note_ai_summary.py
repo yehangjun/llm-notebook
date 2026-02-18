@@ -16,6 +16,7 @@ class NoteAISummary(Base):
     note_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("notes.id"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     output_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     output_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     output_tags_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)

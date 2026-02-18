@@ -17,6 +17,7 @@ class FeedItem(BaseModel):
     tags: list[str] = Field(default_factory=list)
     analysis_status: str
     summary_excerpt: str | None
+    published_at: datetime | None
     updated_at: datetime
     like_count: int
     bookmark_count: int

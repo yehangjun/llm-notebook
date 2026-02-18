@@ -3,12 +3,12 @@ from __future__ import annotations
 import html
 import ipaddress
 import json
+import logging
 import re
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -16,10 +16,12 @@ from xml.etree import ElementTree as ET
 
 from redis import Redis
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from app.core.published_at import infer_published_at, parse_datetime
 from app.core.config import settings
 from app.db.session import SessionLocal
+from app.infra.network import urlopen_with_optional_proxy
 from app.infra.openai_compatible_client import OpenAICompatibleClient, OpenAICompatibleClientError
 from app.infra.redis_client import get_redis
 from app.models.aggregate_item import AggregateItem
@@ -48,11 +50,13 @@ SKIP_FILE_SUFFIXES = {
 }
 TRACKING_QUERY_KEYS = {"ref", "source", "spm", "from", "fbclid", "gclid"}
 REFRESH_JOB_KEY_PREFIX = "aggregation:refresh:job:"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
 class AggregateAnalysisResult:
     title: str | None
+    published_at: datetime | None
     summary_text: str
     tags: list[str]
     model_provider: str | None
@@ -162,6 +166,31 @@ class AggregationService:
         if not source:
             raise ValueError("信息源不存在")
         return self._refresh_sources([source])
+
+    def reanalyze_single_item(self, *, item_id: UUID) -> bool:
+        item = self.db.scalar(
+            select(AggregateItem)
+            .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
+            .options(joinedload(AggregateItem.source_creator))
+            .where(
+                AggregateItem.id == item_id,
+                SourceCreator.is_deleted.is_(False),
+            )
+        )
+        if not item or not item.source_creator:
+            raise ValueError("聚合条目不存在")
+
+        if item.analysis_status == "running":
+            return False
+
+        item.analysis_status = "pending"
+        item.analysis_error = None
+        self.db.add(item)
+        self.db.flush()
+
+        self._run_analysis(item=item, source=item.source_creator)
+        self.db.commit()
+        return True
 
     def _refresh_sources(self, sources: list[SourceCreator]) -> RefreshAggregatesResponse:
         refreshed = 0
@@ -319,7 +348,7 @@ class AggregationService:
         self.db.flush()
 
         try:
-            title, content, _ = self._fetch_source_document(item.source_url)
+            title, content, _, inferred_published_at = self._fetch_source_document(item.source_url)
             if not content:
                 raise ValueError("来源内容为空，无法分析")
 
@@ -330,6 +359,7 @@ class AggregationService:
                     source_title=title,
                     source_slug=source.slug,
                     content=content,
+                    inferred_published_at=inferred_published_at,
                 )
             else:
                 result = self._analyze_local(
@@ -337,9 +367,12 @@ class AggregationService:
                     source_slug=source.slug,
                     source_title=title,
                     content=content,
+                    inferred_published_at=inferred_published_at,
                 )
 
             item.source_title = (result.title or item.source_title or "")[:512] or None
+            if item.published_at is None and result.published_at is not None:
+                item.published_at = result.published_at
             item.summary_text = result.summary_text
             item.tags_json = result.tags
             item.key_points_json = self._extract_key_points(content=content, summary_text=result.summary_text)
@@ -366,6 +399,7 @@ class AggregationService:
         source_title: str | None,
         source_slug: str,
         content: str,
+        inferred_published_at: datetime | None,
     ) -> AggregateAnalysisResult:
         try:
             result = self.llm_client.analyze(
@@ -399,6 +433,7 @@ class AggregationService:
 
         return AggregateAnalysisResult(
             title=(result.title or source_title or "")[:512] or None,
+            published_at=result.published_at or inferred_published_at,
             summary_text=summary_text,
             tags=tags,
             model_provider=settings.llm_provider_name,
@@ -413,6 +448,7 @@ class AggregationService:
         source_slug: str,
         source_title: str | None,
         content: str,
+        inferred_published_at: datetime | None,
     ) -> AggregateAnalysisResult:
         summary_core = content[:260].strip()
         summary_text = f"该内容来自 {source_domain}。核心信息：{summary_core}"[:400]
@@ -422,6 +458,7 @@ class AggregationService:
 
         return AggregateAnalysisResult(
             title=source_title,
+            published_at=inferred_published_at,
             summary_text=summary_text,
             tags=tags[:MAX_ANALYSIS_TAGS],
             model_provider=settings.note_model_provider,
@@ -516,7 +553,7 @@ class AggregationService:
                 "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
             },
         )
-        with urllib.request.urlopen(request, timeout=settings.note_fetch_timeout_seconds) as response:
+        with urlopen_with_optional_proxy(request, timeout=settings.note_fetch_timeout_seconds) as response:
             raw = response.read(settings.note_fetch_max_bytes)
             encoding = response.headers.get_content_charset() or "utf-8"
 
@@ -591,7 +628,7 @@ class AggregationService:
 
         return entries
 
-    def _fetch_source_document(self, source_url: str) -> tuple[str | None, str, str]:
+    def _fetch_source_document(self, source_url: str) -> tuple[str | None, str, str, datetime | None]:
         request = urllib.request.Request(
             source_url,
             headers={
@@ -603,7 +640,7 @@ class AggregationService:
                 "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
             },
         )
-        with urllib.request.urlopen(request, timeout=settings.note_fetch_timeout_seconds) as response:
+        with urlopen_with_optional_proxy(request, timeout=settings.note_fetch_timeout_seconds) as response:
             raw = response.read(settings.note_fetch_max_bytes)
             encoding = response.headers.get_content_charset() or "utf-8"
             resolved_url = response.geturl()
@@ -619,7 +656,8 @@ class AggregationService:
         if len(plain) > settings.note_body_max_chars:
             plain = plain[: settings.note_body_max_chars]
 
-        return title, plain, resolved_url
+        published_at = infer_published_at(source_url=resolved_url or source_url, document=document)
+        return title, plain, resolved_url, published_at
 
     def _normalize_source_url(self, raw_url: str) -> tuple[str, str, str]:
         source_url = raw_url.strip()
@@ -700,28 +738,7 @@ class AggregationService:
         return normalized_host == normalized_domain or normalized_host.endswith(f".{normalized_domain}")
 
     def _parse_datetime(self, raw: str | None) -> datetime | None:
-        if not raw:
-            return None
-        value = raw.strip()
-        if not value:
-            return None
-
-        try:
-            dt = parsedate_to_datetime(value)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-        except (TypeError, ValueError, IndexError):
-            pass
-
-        try:
-            iso_value = value.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(iso_value)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-        except ValueError:
-            return None
+        return parse_datetime(raw)
 
     def _normalize_title(self, raw: str | None) -> str | None:
         if raw is None:
@@ -907,5 +924,16 @@ def run_aggregation_refresh_job(*, job_id: str, source_id: str | None) -> None:
         payload["error_message"] = (str(exc).strip() or "聚合刷新失败")[:500]
         payload["finished_at"] = datetime.now(timezone.utc).isoformat()
         _save_refresh_job(redis, payload)
+    finally:
+        db.close()
+
+
+def run_aggregation_item_reanalysis_job(*, aggregate_id: str) -> None:
+    db = SessionLocal()
+    try:
+        service = AggregationService(db)
+        service.reanalyze_single_item(item_id=UUID(aggregate_id))
+    except Exception:  # noqa: BLE001
+        logger.exception("aggregate item reanalysis background job crashed", extra={"aggregate_id": aggregate_id})
     finally:
         db.close()

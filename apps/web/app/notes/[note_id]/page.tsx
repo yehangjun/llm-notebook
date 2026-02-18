@@ -220,6 +220,12 @@ export default function NoteDetailPage() {
                 {note.latest_summary.title}
               </div>
             )}
+            {note.latest_summary?.published_at && (
+              <div style={{ marginBottom: 8 }}>
+                <strong>发布时间：</strong>
+                {new Date(note.latest_summary.published_at).toLocaleString()}
+              </div>
+            )}
             {note.latest_summary?.summary_text && <p className="summary-block">{note.latest_summary.summary_text}</p>}
             {!!note.latest_summary?.tags?.length && (
               <div className="row" style={{ marginTop: 8 }}>

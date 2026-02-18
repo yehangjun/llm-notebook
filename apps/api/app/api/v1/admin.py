@@ -9,6 +9,7 @@ from app.models.user import User
 from app.schemas.auth import GenericMessageResponse
 from app.schemas.note import AdminNoteListResponse
 from app.schemas.source_creator import (
+    AdminAggregateItemListResponse,
     AdminCreateSourceCreatorRequest,
     AdminSourceCreatorItem,
     AdminSourceCreatorListResponse,
@@ -17,7 +18,7 @@ from app.schemas.source_creator import (
     AggregateRefreshJobStatus,
 )
 from app.schemas.user import AdminUpdateUserRequest, AdminUserItem, AdminUserListResponse
-from app.services.aggregation_service import run_aggregation_refresh_job
+from app.services.aggregation_service import run_aggregation_item_reanalysis_job, run_aggregation_refresh_job
 from app.services.admin_service import AdminService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -165,6 +166,41 @@ def restore_source(
 ):
     service = AdminService(db)
     return service.restore_source(source_id=source_id)
+
+
+@router.get("/aggregates/items", response_model=AdminAggregateItemListResponse)
+def list_aggregate_items(
+    status: str | None = Query(default=None),
+    source_id: UUID | None = Query(default=None),
+    keyword: str | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    service = AdminService(db)
+    items = service.list_aggregate_items(
+        status_filter=status,
+        source_id=source_id,
+        keyword=keyword,
+        offset=offset,
+        limit=limit,
+    )
+    return AdminAggregateItemListResponse(items=items)
+
+
+@router.post("/aggregates/items/{aggregate_id}/reanalyze", response_model=GenericMessageResponse, status_code=202)
+def reanalyze_aggregate_item(
+    aggregate_id: UUID,
+    background_tasks: BackgroundTasks,
+    _: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    service = AdminService(db)
+    result = service.ensure_aggregate_item_retryable(aggregate_id=aggregate_id)
+    if result.message == "已触发重试分析":
+        background_tasks.add_task(run_aggregation_item_reanalysis_job, aggregate_id=str(aggregate_id))
+    return result
 
 
 @router.post("/aggregates/refresh", response_model=AggregateRefreshJobAccepted, status_code=202)

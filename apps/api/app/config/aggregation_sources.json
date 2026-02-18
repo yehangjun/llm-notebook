@@ -16,14 +16,6 @@
     "is_active": true
   },
   {
-    "slug": "microsoft-ai-blog",
-    "display_name": "Microsoft AI Blog",
-    "source_domain": "blogs.microsoft.com",
-    "feed_url": "https://blogs.microsoft.com/ai/feed/",
-    "homepage_url": "https://blogs.microsoft.com/ai/",
-    "is_active": true
-  },
-  {
     "slug": "jiqizhixin",
     "display_name": "机器之心",
     "source_domain": "jiqizhixin.com",

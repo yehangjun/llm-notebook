@@ -25,6 +25,24 @@ class AdminSourceCreatorListResponse(BaseModel):
     sources: list[AdminSourceCreatorItem]
 
 
+class AdminAggregateItem(BaseModel):
+    id: UUID
+    source_creator_id: UUID
+    source_slug: str
+    source_display_name: str
+    source_url: str
+    source_domain: str
+    source_title: str | None
+    analysis_status: str
+    analysis_error: str | None
+    published_at: datetime | None
+    updated_at: datetime
+
+
+class AdminAggregateItemListResponse(BaseModel):
+    items: list[AdminAggregateItem]
+
+
 class AdminCreateSourceCreatorRequest(BaseModel):
     slug: str = Field(min_length=2, max_length=64)
     display_name: str = Field(min_length=1, max_length=128)

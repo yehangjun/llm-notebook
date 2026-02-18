@@ -5,12 +5,14 @@ import re
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from redis import Redis
 from sqlalchemy.orm import Session
 
+from app.core.published_at import infer_published_at
 from app.core.config import settings
 from app.core.url_blacklist import CATEGORY_LABELS, match_blacklisted_host
 from app.db.session import SessionLocal
@@ -19,6 +21,7 @@ from app.infra.openai_compatible_client import (
     OpenAICompatibleClient,
     OpenAICompatibleClientError,
 )
+from app.infra.network import urlopen_with_optional_proxy
 from app.infra.redis_client import get_redis
 from app.models.note import Note
 from app.models.note_ai_summary import NoteAISummary
@@ -59,6 +62,7 @@ class AnalysisError(Exception):
 @dataclass(slots=True)
 class SourceAnalysis:
     title: str | None
+    published_at: datetime | None
     summary_text: str
     tags: list[str]
     model_provider: str | None
@@ -143,7 +147,11 @@ class NoteService:
             offset=offset,
             limit=limit,
         )
-        return NoteListResponse(notes=[self._build_note_list_item(note) for note in notes])
+        note_items: list[NoteListItem] = []
+        for note in notes:
+            latest_summary = self.note_repo.get_latest_summary(note.id)
+            note_items.append(self._build_note_list_item(note=note, latest_summary=latest_summary))
+        return NoteListResponse(notes=note_items)
 
     def get_note_detail(self, *, user: User, note_id: UUID) -> NoteDetail:
         note = self.note_repo.get_by_id_for_user(note_id=note_id, user_id=user.id)
@@ -230,6 +238,7 @@ class NoteService:
             note_id=note.id,
             status="succeeded",
             output_title=result.title,
+            published_at=result.published_at,
             output_summary=result.summary_text,
             output_tags=result.tags,
             summary_text=result.summary_text,
@@ -261,6 +270,7 @@ class NoteService:
             note_id=note.id,
             status="failed",
             output_title=None,
+            published_at=None,
             output_summary=None,
             output_tags=None,
             summary_text=None,
@@ -306,12 +316,13 @@ class NoteService:
             latest_summary=self._build_summary_public(latest_summary),
         )
 
-    def _build_note_list_item(self, note: Note) -> NoteListItem:
+    def _build_note_list_item(self, *, note: Note, latest_summary: NoteAISummary | None) -> NoteListItem:
         return NoteListItem(
             id=note.id,
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
             source_title=note.source_title,
+            published_at=latest_summary.published_at if latest_summary else None,
             tags=note.tags_json or [],
             visibility=note.visibility,
             analysis_status=note.analysis_status,
@@ -346,6 +357,7 @@ class NoteService:
             id=summary.id,
             status=summary.status,
             title=summary.output_title,
+            published_at=summary.published_at,
             summary_text=merged_summary,
             tags=merged_tags,
             model_provider=summary.model_provider,
@@ -357,7 +369,7 @@ class NoteService:
         )
 
     def _analyze_source(self, note: Note) -> SourceAnalysis:
-        source_title, content = self._fetch_source_content(note.source_url)
+        source_title, content, inferred_published_at = self._fetch_source_content(note.source_url)
         if not content:
             raise AnalysisError(code="empty_content", message="来源内容为空，无法分析")
 
@@ -367,6 +379,7 @@ class NoteService:
                 source_domain=note.source_domain,
                 source_title=source_title,
                 content=content,
+                inferred_published_at=inferred_published_at,
             )
 
         if settings.llm_allow_local_fallback:
@@ -374,6 +387,7 @@ class NoteService:
                 source_domain=note.source_domain,
                 source_title=source_title,
                 content=content,
+                inferred_published_at=inferred_published_at,
             )
 
         raise AnalysisError(code="llm_not_configured", message="模型 API Key 未配置，无法执行内容分析")
@@ -385,6 +399,7 @@ class NoteService:
         source_domain: str,
         source_title: str | None,
         content: str,
+        inferred_published_at: datetime | None,
     ) -> SourceAnalysis:
         try:
             result = self.llm_client.analyze(
@@ -411,11 +426,19 @@ class NoteService:
         return self._build_source_analysis(
             result=result,
             fallback_title=source_title,
+            fallback_published_at=inferred_published_at,
             model_provider=settings.llm_provider_name,
             model_version=None,
         )
 
-    def _analyze_source_local(self, *, source_domain: str, source_title: str | None, content: str) -> SourceAnalysis:
+    def _analyze_source_local(
+        self,
+        *,
+        source_domain: str,
+        source_title: str | None,
+        content: str,
+        inferred_published_at: datetime | None,
+    ) -> SourceAnalysis:
         summary_core = content[:260].strip()
         summary_text = f"该内容来自 {source_domain}。核心信息：{summary_core}"[:400]
 
@@ -425,6 +448,7 @@ class NoteService:
 
         return SourceAnalysis(
             title=source_title,
+            published_at=inferred_published_at,
             summary_text=summary_text,
             tags=tags[:MAX_ANALYSIS_TAGS],
             model_provider="local-fallback",
@@ -441,6 +465,7 @@ class NoteService:
         *,
         result: OpenAICompatibleAnalysisResult,
         fallback_title: str | None,
+        fallback_published_at: datetime | None,
         model_provider: str,
         model_version: str | None,
     ) -> SourceAnalysis:
@@ -454,6 +479,7 @@ class NoteService:
 
         return SourceAnalysis(
             title=(result.title or fallback_title or "")[:512] or None,
+            published_at=result.published_at or fallback_published_at,
             summary_text=summary_text,
             tags=tags,
             model_provider=model_provider,
@@ -504,7 +530,7 @@ class NoteService:
             return None
         return settings.note_model_version
 
-    def _fetch_source_content(self, source_url: str) -> tuple[str | None, str]:
+    def _fetch_source_content(self, source_url: str) -> tuple[str | None, str, datetime | None]:
         request = urllib.request.Request(
             source_url,
             headers={
@@ -514,9 +540,10 @@ class NoteService:
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=settings.note_fetch_timeout_seconds) as response:
+            with urlopen_with_optional_proxy(request, timeout=settings.note_fetch_timeout_seconds) as response:
                 raw = response.read(settings.note_fetch_max_bytes)
                 encoding = response.headers.get_content_charset() or "utf-8"
+                resolved_url = response.geturl()
         except Exception as exc:  # noqa: BLE001
             raise AnalysisError(code="source_unreachable", message="来源链接暂不可访问，请稍后重试") from exc
 
@@ -531,7 +558,8 @@ class NoteService:
 
         if len(plain) > settings.note_body_max_chars:
             plain = plain[: settings.note_body_max_chars]
-        return title, plain
+        published_at = infer_published_at(source_url=resolved_url or source_url, document=text)
+        return title, plain, published_at
 
     def _normalize_source_url(self, raw_url: str) -> tuple[str, str, str]:
         source_url = raw_url.strip()

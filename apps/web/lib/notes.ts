@@ -2,6 +2,7 @@ export type NoteSummaryPublic = {
   id: string;
   status: "succeeded" | "failed";
   title: string | null;
+  published_at: string | null;
   summary_text: string | null;
   tags: string[];
   model_provider: string | null;
@@ -17,6 +18,7 @@ export type NoteListItem = {
   source_url: string;
   source_domain: string;
   source_title: string | null;
+  published_at: string | null;
   tags: string[];
   visibility: "private" | "public";
   analysis_status: "pending" | "running" | "succeeded" | "failed";

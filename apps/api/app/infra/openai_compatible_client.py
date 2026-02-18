@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import datetime
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.published_at import parse_datetime
 from app.core.config import settings
+from app.infra.network import urlopen_with_optional_proxy
 
 TRANSIENT_HTTP_STATUS = {429, 500, 502, 503, 504}
 ALLOWED_TAG_RE = re.compile(r"^[a-z0-9_-]+$")
@@ -27,6 +30,7 @@ class OpenAICompatibleClientError(Exception):
 @dataclass(slots=True)
 class OpenAICompatibleAnalysisResult:
     title: str | None
+    published_at: datetime | None
     summary: str
     tags: list[str]
     model_name: str | None
@@ -70,7 +74,8 @@ class OpenAICompatibleClient:
     ) -> dict[str, Any]:
         system_prompt = (
             "你是 Prism 的内容分析助手。"
-            "请严格返回 JSON 对象，字段必须是 title, summary, tags。"
+            "请严格返回 JSON 对象，字段必须是 title, published_at, summary, tags。"
+            "published_at 可为空，格式优先使用 ISO8601。"
             "tags 必须是 1 到 5 个英文小写标签，仅允许 a-z 0-9 _ -。"
             "不要输出 JSON 之外的任何文字。"
         )
@@ -86,6 +91,7 @@ class OpenAICompatibleClient:
             "content": content,
             "output_schema": {
                 "title": "string, optional, <=120 chars",
+                "published_at": "string, optional, datetime",
                 "summary": "string, required, <=400 chars",
                 "tags": "string[], required, 1~5, lowercase english tags only",
             },
@@ -114,7 +120,7 @@ class OpenAICompatibleClient:
         for attempt in range(1, retries + 1):
             try:
                 req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=timeout) as response:
+                with urlopen_with_optional_proxy(req, timeout=timeout) as response:
                     raw = response.read()
                 return json.loads(raw.decode("utf-8"))
             except urllib.error.HTTPError as exc:
@@ -151,6 +157,13 @@ class OpenAICompatibleClient:
         output = self._parse_json_content(text_content)
 
         title = self._normalize_title(output.get("title"))
+        published_at = parse_datetime(
+            self._normalize_optional_string(
+                output.get("published_at")
+                or output.get("publishedAt")
+                or output.get("publish_time")
+            )
+        )
         summary = self._normalize_summary(output.get("summary"))
         tags = self._normalize_tags(output.get("tags"))
         if not summary:
@@ -167,6 +180,7 @@ class OpenAICompatibleClient:
 
         return OpenAICompatibleAnalysisResult(
             title=title,
+            published_at=published_at,
             summary=summary,
             tags=tags,
             model_name=model_name,
@@ -232,6 +246,12 @@ class OpenAICompatibleClient:
         if not isinstance(raw, str):
             return ""
         return raw.strip()[:MAX_SUMMARY_LENGTH]
+
+    def _normalize_optional_string(self, raw: Any) -> str | None:
+        if not isinstance(raw, str):
+            return None
+        normalized = raw.strip()
+        return normalized or None
 
     def _normalize_tags(self, raw: Any) -> list[str]:
         if not isinstance(raw, list):

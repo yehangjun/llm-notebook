@@ -10,6 +10,7 @@ export type FeedItem = {
   tags: string[];
   analysis_status: "pending" | "running" | "succeeded" | "failed";
   summary_excerpt: string | null;
+  published_at: string | null;
   updated_at: string;
   like_count: number;
   bookmark_count: number;

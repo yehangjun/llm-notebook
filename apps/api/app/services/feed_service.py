@@ -152,6 +152,7 @@ class FeedService:
                 .options(joinedload(AggregateItem.source_creator))
                 .where(
                     AggregateItem.id.in_(aggregate_ids),
+                    AggregateItem.analysis_status == "succeeded",
                     SourceCreator.is_active.is_(True),
                     SourceCreator.is_deleted.is_(False),
                 )
@@ -231,6 +232,7 @@ class FeedService:
                 .options(joinedload(AggregateItem.source_creator))
                 .where(
                     AggregateItem.id == item_id,
+                    AggregateItem.analysis_status == "succeeded",
                     SourceCreator.is_active.is_(True),
                     SourceCreator.is_deleted.is_(False),
                 )
@@ -298,6 +300,7 @@ class FeedService:
                         tags=note.tags_json or [],
                         analysis_status=note.analysis_status,
                         summary_excerpt=self._shorten(excerpt),
+                        published_at=latest_summary.published_at if latest_summary else None,
                         updated_at=note.updated_at,
                         like_count=stats.like_count,
                         bookmark_count=stats.bookmark_count,
@@ -327,6 +330,7 @@ class FeedService:
                     tags=aggregate.tags_json or [],
                     analysis_status=aggregate.analysis_status,
                     summary_excerpt=self._shorten(aggregate.summary_text),
+                    published_at=aggregate.published_at,
                     updated_at=aggregate.updated_at,
                     like_count=stats.like_count,
                     bookmark_count=stats.bookmark_count,
@@ -358,6 +362,7 @@ class FeedService:
             .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
             .options(joinedload(AggregateItem.source_creator))
             .where(
+                AggregateItem.analysis_status == "succeeded",
                 SourceCreator.is_active.is_(True),
                 SourceCreator.is_deleted.is_(False),
             )

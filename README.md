@@ -95,6 +95,7 @@ alembic revision -m "your migration name"
   - `LLM_MAX_RETRIES`
   - `LLM_PROMPT_VERSION`
   - `LLM_ALLOW_LOCAL_FALLBACK`
+  - `NETWORK_PROXY_URL`（全局网络代理，影响链接抓取与大模型调用）
 - 信息聚合相关环境变量：
   - `AGGREGATION_MAX_ITEMS_PER_SOURCE`（每个信息源每次刷新最多处理的候选链接数）
   - `AGGREGATION_USE_MODEL_ANALYSIS`（是否启用大模型分析，默认 `false`）

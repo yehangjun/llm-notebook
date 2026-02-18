@@ -50,6 +50,27 @@ type AggregateRefreshJobStatus = {
   error_message: string | null;
 };
 
+type AnalysisStatus = "pending" | "running" | "succeeded" | "failed";
+type AggregateStatusFilter = AnalysisStatus | "";
+
+type AdminAggregateItem = {
+  id: string;
+  source_creator_id: string;
+  source_slug: string;
+  source_display_name: string;
+  source_url: string;
+  source_domain: string;
+  source_title: string | null;
+  analysis_status: AnalysisStatus;
+  analysis_error: string | null;
+  published_at: string | null;
+  updated_at: string;
+};
+
+type AdminAggregateItemListResponse = {
+  items: AdminAggregateItem[];
+};
+
 type SourceDraft = {
   display_name: string;
   source_domain: string;
@@ -69,10 +90,27 @@ type SourceQueryState = {
   active: SourceActiveFilter;
 };
 
+type AggregateQueryState = {
+  status: AggregateStatusFilter;
+  keyword: string;
+  sourceId: string;
+  offset: number;
+  limit: number;
+};
+
 const DEFAULT_QUERY: SourceQueryState = {
   keyword: "",
   deleted: "all",
   active: "all",
+};
+
+const AGGREGATE_PAGE_SIZE = 20;
+const DEFAULT_AGGREGATE_QUERY: AggregateQueryState = {
+  status: "failed",
+  keyword: "",
+  sourceId: "",
+  offset: 0,
+  limit: AGGREGATE_PAGE_SIZE,
 };
 
 const EMPTY_CREATE_FORM = {
@@ -98,10 +136,18 @@ export default function AdminSourcesPage() {
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
 
   const [refreshJob, setRefreshJob] = useState<AggregateRefreshJobStatus | null>(null);
+  const [aggregateItems, setAggregateItems] = useState<AdminAggregateItem[]>([]);
+  const [aggregateKeyword, setAggregateKeyword] = useState(DEFAULT_AGGREGATE_QUERY.keyword);
+  const [aggregateStatusFilter, setAggregateStatusFilter] = useState<AggregateStatusFilter>(DEFAULT_AGGREGATE_QUERY.status);
+  const [aggregateSourceIdFilter, setAggregateSourceIdFilter] = useState(DEFAULT_AGGREGATE_QUERY.sourceId);
+  const [aggregateOffset, setAggregateOffset] = useState(DEFAULT_AGGREGATE_QUERY.offset);
+  const [aggregateHasNext, setAggregateHasNext] = useState(false);
+  const [aggregateLoading, setAggregateLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [actingSourceId, setActingSourceId] = useState("");
+  const [actingAggregateId, setActingAggregateId] = useState("");
   const [creating, setCreating] = useState(false);
   const [triggeringRefresh, setTriggeringRefresh] = useState(false);
 
@@ -121,6 +167,7 @@ export default function AdminSourcesPage() {
         setMe(user);
         setStoredUser(user);
         void fetchSources(DEFAULT_QUERY);
+        void fetchAggregateItems(DEFAULT_AGGREGATE_QUERY);
       })
       .catch(() => {
         clearAuth();
@@ -144,6 +191,13 @@ export default function AdminSourcesPage() {
             setSuccess(
               `聚合刷新完成：刷新 ${job.refreshed_items ?? 0} 条，失败 ${job.failed_items ?? 0} 条（来源 ${job.total_sources ?? 0}）`,
             );
+            void fetchAggregateItems({
+              status: aggregateStatusFilter,
+              keyword: aggregateKeyword.trim(),
+              sourceId: aggregateSourceIdFilter,
+              offset: aggregateOffset,
+              limit: AGGREGATE_PAGE_SIZE,
+            });
           }
           if (job.status === "failed") {
             setError(job.error_message || "聚合刷新失败");
@@ -157,7 +211,7 @@ export default function AdminSourcesPage() {
     return () => {
       window.clearInterval(timer);
     };
-  }, [refreshJob]);
+  }, [aggregateKeyword, aggregateOffset, aggregateSourceIdFilter, aggregateStatusFilter, refreshJob]);
 
   async function fetchSources(nextQuery: SourceQueryState) {
     setLoading(true);
@@ -190,6 +244,27 @@ export default function AdminSourcesPage() {
     }
   }
 
+  async function fetchAggregateItems(nextQuery: AggregateQueryState) {
+    setAggregateLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (nextQuery.status) params.set("status", nextQuery.status);
+      if (nextQuery.keyword) params.set("keyword", nextQuery.keyword);
+      if (nextQuery.sourceId) params.set("source_id", nextQuery.sourceId);
+      params.set("offset", String(nextQuery.offset));
+      params.set("limit", String(nextQuery.limit));
+      const path = `/admin/aggregates/items?${params.toString()}`;
+      const data = await apiRequest<AdminAggregateItemListResponse>(path, {}, true);
+      setAggregateItems(data.items);
+      setAggregateHasNext(data.items.length >= nextQuery.limit);
+      setAggregateOffset(nextQuery.offset);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载聚合条目失败");
+    } finally {
+      setAggregateLoading(false);
+    }
+  }
+
   async function onSearch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const nextQuery: SourceQueryState = {
@@ -199,6 +274,32 @@ export default function AdminSourcesPage() {
     };
     setQuery(nextQuery);
     await fetchSources(nextQuery);
+  }
+
+  async function onSearchAggregates(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const nextQuery: AggregateQueryState = {
+      status: aggregateStatusFilter,
+      keyword: aggregateKeyword.trim(),
+      sourceId: aggregateSourceIdFilter,
+      offset: 0,
+      limit: AGGREGATE_PAGE_SIZE,
+    };
+    await fetchAggregateItems(nextQuery);
+  }
+
+  async function onChangeAggregatePage(direction: "prev" | "next") {
+    const nextOffset =
+      direction === "prev"
+        ? Math.max(0, aggregateOffset - AGGREGATE_PAGE_SIZE)
+        : aggregateOffset + AGGREGATE_PAGE_SIZE;
+    await fetchAggregateItems({
+      status: aggregateStatusFilter,
+      keyword: aggregateKeyword.trim(),
+      sourceId: aggregateSourceIdFilter,
+      offset: nextOffset,
+      limit: AGGREGATE_PAGE_SIZE,
+    });
   }
 
   async function onCreateSource(e: FormEvent<HTMLFormElement>) {
@@ -326,10 +427,42 @@ export default function AdminSourcesPage() {
         error_message: null,
       });
       setSuccess(accepted.message);
+      await fetchAggregateItems({
+        status: aggregateStatusFilter,
+        keyword: aggregateKeyword.trim(),
+        sourceId: aggregateSourceIdFilter,
+        offset: aggregateOffset,
+        limit: AGGREGATE_PAGE_SIZE,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "提交刷新任务失败");
     } finally {
       setTriggeringRefresh(false);
+    }
+  }
+
+  async function onReanalyzeAggregate(item: AdminAggregateItem) {
+    setError("");
+    setSuccess("");
+    setActingAggregateId(item.id);
+    try {
+      const result = await apiRequest<{ message: string }>(
+        `/admin/aggregates/items/${item.id}/reanalyze`,
+        { method: "POST" },
+        true,
+      );
+      setSuccess(`${item.source_slug}: ${result.message}`);
+      await fetchAggregateItems({
+        status: aggregateStatusFilter,
+        keyword: aggregateKeyword.trim(),
+        sourceId: aggregateSourceIdFilter,
+        offset: aggregateOffset,
+        limit: AGGREGATE_PAGE_SIZE,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "触发聚合条目重试失败");
+    } finally {
+      setActingAggregateId("");
     }
   }
 
@@ -474,6 +607,106 @@ export default function AdminSourcesPage() {
               {refreshJob.error_message && <div style={{ marginTop: 6 }} className="error">{refreshJob.error_message}</div>}
             </div>
           )}
+
+          <section style={{ marginTop: 16 }}>
+            <h2 style={{ margin: "0 0 8px" }}>聚合条目分析状态</h2>
+            <form className="row" onSubmit={onSearchAggregates}>
+              <select
+                value={aggregateStatusFilter}
+                onChange={(e) => setAggregateStatusFilter(e.target.value as AggregateStatusFilter)}
+              >
+                <option value="">全部状态</option>
+                <option value="pending">待分析</option>
+                <option value="running">分析中</option>
+                <option value="succeeded">成功</option>
+                <option value="failed">失败</option>
+              </select>
+              <select value={aggregateSourceIdFilter} onChange={(e) => setAggregateSourceIdFilter(e.target.value)}>
+                <option value="">全部信息源</option>
+                {sources
+                  .filter((source) => !source.is_deleted)
+                  .map((source) => (
+                    <option key={`aggregate-filter-${source.id}`} value={source.id}>
+                      {source.slug}
+                    </option>
+                  ))}
+              </select>
+              <input
+                style={{ flex: 1, minWidth: 220 }}
+                placeholder="按来源 slug / 标题 / 域名 / 错误信息搜索"
+                value={aggregateKeyword}
+                onChange={(e) => setAggregateKeyword(e.target.value)}
+              />
+              <button className="btn" type="submit" disabled={aggregateLoading}>
+                {aggregateLoading ? "查询中..." : "查询条目"}
+              </button>
+            </form>
+            <div style={{ overflowX: "auto", marginTop: 12 }}>
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>信息源</th>
+                    <th>标题</th>
+                    <th>状态</th>
+                    <th>失败原因</th>
+                    <th>发布时间</th>
+                    <th>更新时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aggregateItems.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.source_slug || item.source_display_name}</td>
+                      <td>{item.source_title || item.source_url}</td>
+                      <td>{renderAnalysisStatus(item.analysis_status)}</td>
+                      <td>{item.analysis_error || "-"}</td>
+                      <td>{item.published_at ? new Date(item.published_at).toLocaleString() : "-"}</td>
+                      <td>{new Date(item.updated_at).toLocaleString()}</td>
+                      <td>
+                        <button
+                          className="btn secondary"
+                          type="button"
+                          onClick={() => void onReanalyzeAggregate(item)}
+                          disabled={actingAggregateId === item.id}
+                        >
+                          {actingAggregateId === item.id ? "处理中..." : "重试分析"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {aggregateItems.length === 0 && (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: "center" }}>
+                        暂无匹配的聚合条目
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="row" style={{ marginTop: 12 }}>
+              <button
+                className="btn secondary"
+                type="button"
+                disabled={aggregateLoading || aggregateOffset === 0}
+                onClick={() => void onChangeAggregatePage("prev")}
+              >
+                上一页
+              </button>
+              <button
+                className="btn secondary"
+                type="button"
+                disabled={aggregateLoading || !aggregateHasNext}
+                onClick={() => void onChangeAggregatePage("next")}
+              >
+                下一页
+              </button>
+              <span className="helper">
+                第 {Math.floor(aggregateOffset / AGGREGATE_PAGE_SIZE) + 1} 页 · 每页 {AGGREGATE_PAGE_SIZE} 条
+              </span>
+            </div>
+          </section>
 
           <div style={{ overflowX: "auto", marginTop: 16 }}>
             <table className="admin-table">
@@ -630,4 +863,11 @@ function renderRefreshStatus(status: RefreshStatus): string {
   if (status === "succeeded") return "成功";
   if (status === "failed") return "失败";
   return "未找到";
+}
+
+function renderAnalysisStatus(status: AnalysisStatus): string {
+  if (status === "pending") return "待分析";
+  if (status === "running") return "分析中";
+  if (status === "succeeded") return "成功";
+  return "失败";
 }

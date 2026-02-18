@@ -5,8 +5,9 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from app.models.aggregate_item import AggregateItem
 from app.core.config import ALLOWED_UI_LANGUAGES
 from app.core.config import settings
 from app.models.note import Note
@@ -17,7 +18,7 @@ from app.repositories.session_repo import SessionRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import GenericMessageResponse
 from app.schemas.note import AdminNoteItem
-from app.schemas.source_creator import AdminCreateSourceCreatorRequest, AdminUpdateSourceCreatorRequest
+from app.schemas.source_creator import AdminAggregateItem, AdminCreateSourceCreatorRequest, AdminUpdateSourceCreatorRequest
 from app.schemas.user import AdminUpdateUserRequest
 from app.services.aggregation_service import (
     AggregationService,
@@ -93,7 +94,7 @@ class AdminService:
         offset: int,
         limit: int,
     ) -> list[AdminNoteItem]:
-        status_value = self._validate_note_status(status_filter)
+        status_value = self._validate_analysis_status(status_filter)
         visibility_value = self._validate_note_visibility(visibility_filter)
         deleted_value = self._validate_deleted_filter(deleted_filter)
         owner_value = owner_user_id.strip() if owner_user_id else None
@@ -172,6 +173,58 @@ class AdminService:
 
         stmt = stmt.order_by(SourceCreator.updated_at.desc(), SourceCreator.slug.asc()).offset(offset).limit(limit)
         return list(self.db.scalars(stmt))
+
+    def list_aggregate_items(
+        self,
+        *,
+        status_filter: str | None,
+        source_id: UUID | None,
+        keyword: str | None,
+        offset: int,
+        limit: int,
+    ) -> list[AdminAggregateItem]:
+        status_value = self._validate_analysis_status(status_filter)
+        keyword_value = keyword.strip() if keyword else None
+
+        stmt = (
+            select(AggregateItem)
+            .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
+            .options(joinedload(AggregateItem.source_creator))
+            .where(SourceCreator.is_deleted.is_(False))
+        )
+        if status_value:
+            stmt = stmt.where(AggregateItem.analysis_status == status_value)
+        if source_id:
+            stmt = stmt.where(AggregateItem.source_creator_id == source_id)
+        if keyword_value:
+            like = f"%{keyword_value}%"
+            stmt = stmt.where(
+                or_(
+                    SourceCreator.slug.ilike(like),
+                    SourceCreator.display_name.ilike(like),
+                    AggregateItem.source_domain.ilike(like),
+                    AggregateItem.source_title.ilike(like),
+                    AggregateItem.source_url_normalized.ilike(like),
+                    AggregateItem.analysis_error.ilike(like),
+                )
+            )
+
+        stmt = stmt.order_by(AggregateItem.updated_at.desc()).offset(offset).limit(limit)
+        items = list(self.db.scalars(stmt))
+        return [self._build_admin_aggregate_item(item) for item in items]
+
+    def ensure_aggregate_item_retryable(self, *, aggregate_id: UUID) -> GenericMessageResponse:
+        item = self.db.scalar(
+            select(AggregateItem)
+            .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
+            .options(joinedload(AggregateItem.source_creator))
+            .where(AggregateItem.id == aggregate_id, SourceCreator.is_deleted.is_(False))
+        )
+        if not item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="聚合条目不存在")
+        if item.analysis_status == "running":
+            return GenericMessageResponse(message="聚合条目正在分析中")
+        return GenericMessageResponse(message="已触发重试分析")
 
     def create_source(self, *, payload: AdminCreateSourceCreatorRequest) -> SourceCreator:
         slug = self._normalize_slug(payload.slug)
@@ -328,7 +381,23 @@ class AdminService:
             updated_at=note.updated_at,
         )
 
-    def _validate_note_status(self, value: str | None) -> str | None:
+    def _build_admin_aggregate_item(self, item: AggregateItem) -> AdminAggregateItem:
+        source = item.source_creator
+        return AdminAggregateItem(
+            id=item.id,
+            source_creator_id=item.source_creator_id,
+            source_slug=source.slug if source else "",
+            source_display_name=source.display_name if source else "",
+            source_url=item.source_url_normalized,
+            source_domain=item.source_domain,
+            source_title=item.source_title,
+            analysis_status=item.analysis_status,
+            analysis_error=item.analysis_error,
+            published_at=item.published_at,
+            updated_at=item.updated_at,
+        )
+
+    def _validate_analysis_status(self, value: str | None) -> str | None:
         if value is None:
             return None
         status_value = value.strip().lower()
