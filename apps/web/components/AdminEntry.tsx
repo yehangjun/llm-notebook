@@ -28,8 +28,8 @@ export default function AdminEntry() {
   }
 
   return (
-    <button className="account-btn" onClick={() => router.push("/admin/users")} aria-label="admin-entry">
-      管理系统
+    <button className="account-btn" onClick={() => router.push("/admin")} aria-label="admin-entry">
+      管理后台
     </button>
   );
 }

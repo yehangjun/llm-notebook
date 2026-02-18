@@ -12,6 +12,8 @@ from app.models.user_bookmark import UserBookmark
 from app.models.user_follow import UserFollow
 from app.models.user_like import UserLike
 from app.schemas.auth import GenericMessageResponse
+
+
 class SocialService:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -58,7 +60,11 @@ class SocialService:
 
     def follow_source(self, *, user: User, source_slug: str) -> GenericMessageResponse:
         source = self.db.scalar(
-            select(SourceCreator).where(SourceCreator.slug == source_slug.strip(), SourceCreator.is_active.is_(True))
+            select(SourceCreator).where(
+                SourceCreator.slug == source_slug.strip(),
+                SourceCreator.is_active.is_(True),
+                SourceCreator.is_deleted.is_(False),
+            )
         )
         if not source:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="信息源不存在")
@@ -82,7 +88,12 @@ class SocialService:
         return GenericMessageResponse(message="关注成功")
 
     def unfollow_source(self, *, user: User, source_slug: str) -> GenericMessageResponse:
-        source = self.db.scalar(select(SourceCreator).where(SourceCreator.slug == source_slug.strip()))
+        source = self.db.scalar(
+            select(SourceCreator).where(
+                SourceCreator.slug == source_slug.strip(),
+                SourceCreator.is_deleted.is_(False),
+            )
+        )
         if not source:
             return GenericMessageResponse(message="已取消关注")
 
@@ -114,7 +125,15 @@ class SocialService:
         return self._unset_bookmark(user_id=user.id, note_id=note_id, aggregate_item_id=None)
 
     def bookmark_aggregate(self, *, user: User, aggregate_id: UUID) -> GenericMessageResponse:
-        aggregate = self.db.scalar(select(AggregateItem).where(AggregateItem.id == aggregate_id))
+        aggregate = self.db.scalar(
+            select(AggregateItem)
+            .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
+            .where(
+                AggregateItem.id == aggregate_id,
+                SourceCreator.is_active.is_(True),
+                SourceCreator.is_deleted.is_(False),
+            )
+        )
         if not aggregate:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="聚合条目不存在")
 
@@ -142,7 +161,15 @@ class SocialService:
         return self._unset_like(user_id=user.id, note_id=note_id, aggregate_item_id=None)
 
     def like_aggregate(self, *, user: User, aggregate_id: UUID) -> GenericMessageResponse:
-        aggregate = self.db.scalar(select(AggregateItem).where(AggregateItem.id == aggregate_id))
+        aggregate = self.db.scalar(
+            select(AggregateItem)
+            .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
+            .where(
+                AggregateItem.id == aggregate_id,
+                SourceCreator.is_active.is_(True),
+                SourceCreator.is_deleted.is_(False),
+            )
+        )
         if not aggregate:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="聚合条目不存在")
         return self._set_like(user_id=user.id, note_id=None, aggregate_item_id=aggregate.id)

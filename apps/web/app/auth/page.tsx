@@ -251,7 +251,7 @@ export default function AuthPage() {
 
 function getPostLoginTarget(auth: AuthResponse): string {
   if (auth.user.is_admin) {
-    return "/admin/users";
+    return "/admin";
   }
   return "/notes";
 }

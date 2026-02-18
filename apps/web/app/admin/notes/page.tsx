@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { apiRequest } from "../../../lib/api";
 import { clearAuth, getStoredUser, setStoredUser, UserPublic } from "../../../lib/auth";
+import AdminTabs from "../../../components/AdminTabs";
 
 type AdminNoteItem = {
   id: string;
@@ -65,7 +66,7 @@ export default function AdminNotesPage() {
     apiRequest<UserPublic>("/me", {}, true)
       .then((user) => {
         if (!user.is_admin) {
-          setError("你不是管理员，无法访问管理系统");
+          setError("你不是管理员，无法访问管理后台");
           setLoading(false);
           return;
         }
@@ -163,7 +164,7 @@ export default function AdminNotesPage() {
       <main className="page">
         <div className="container">
           <section className="card">
-            <h1 style={{ marginTop: 0 }}>管理系统</h1>
+            <h1 style={{ marginTop: 0 }}>管理后台</h1>
             <div className="error">{error || "无权限"}</div>
             <div className="row" style={{ marginTop: 12 }}>
               <button className="btn secondary" type="button" onClick={() => router.push("/")}>
@@ -180,17 +181,8 @@ export default function AdminNotesPage() {
     <main className="page">
       <div className="container">
         <section className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h1 style={{ margin: 0 }}>管理系统 · 笔记管理</h1>
-            <div className="row">
-              <button className="btn secondary" type="button" onClick={() => router.push("/admin/users")}>
-                用户管理
-              </button>
-              <button className="btn secondary" type="button" onClick={() => router.push("/profile")}>
-                返回资料页
-              </button>
-            </div>
-          </div>
+          <h1 style={{ margin: 0 }}>管理后台 · 笔记管理</h1>
+          <AdminTabs />
 
           <form className="row" onSubmit={onSearch} style={{ marginTop: 16 }}>
             <input

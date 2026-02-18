@@ -148,8 +148,13 @@ class FeedService:
         if aggregate_ids:
             for aggregate in self.db.scalars(
                 select(AggregateItem)
+                .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
                 .options(joinedload(AggregateItem.source_creator))
-                .where(AggregateItem.id.in_(aggregate_ids))
+                .where(
+                    AggregateItem.id.in_(aggregate_ids),
+                    SourceCreator.is_active.is_(True),
+                    SourceCreator.is_deleted.is_(False),
+                )
             ):
                 aggregate_map[aggregate.id] = aggregate
 
@@ -227,6 +232,7 @@ class FeedService:
                 .where(
                     AggregateItem.id == item_id,
                     SourceCreator.is_active.is_(True),
+                    SourceCreator.is_deleted.is_(False),
                 )
             )
             if not aggregate:
@@ -351,7 +357,10 @@ class FeedService:
             select(AggregateItem)
             .join(SourceCreator, SourceCreator.id == AggregateItem.source_creator_id)
             .options(joinedload(AggregateItem.source_creator))
-            .where(SourceCreator.is_active.is_(True))
+            .where(
+                SourceCreator.is_active.is_(True),
+                SourceCreator.is_deleted.is_(False),
+            )
             .order_by(desc(AggregateItem.updated_at))
             .limit(fetch_limit)
         )

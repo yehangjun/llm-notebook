@@ -1,81 +1,139 @@
+from __future__ import annotations
+
 import html
 import ipaddress
+import json
 import re
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from pathlib import Path
+from typing import Any
+from uuid import UUID, uuid4
+from xml.etree import ElementTree as ET
 
+from redis import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.session import SessionLocal
+from app.infra.openai_compatible_client import OpenAICompatibleClient, OpenAICompatibleClientError
+from app.infra.redis_client import get_redis
 from app.models.aggregate_item import AggregateItem
 from app.models.source_creator import SourceCreator
 from app.schemas.feed import RefreshAggregatesResponse
 
-ALLOWED_ANALYSIS_STATUS = {"pending", "running", "succeeded", "failed"}
 DEFAULT_PORTS = {"http": 80, "https": 443}
-PRESET_SOURCE_CREATORS = [
-    {
-        "slug": "openai",
-        "display_name": "OpenAI",
-        "source_domain": "openai.com",
-        "homepage_url": "https://openai.com/news/",
-    },
-    {
-        "slug": "anthropic",
-        "display_name": "Anthropic",
-        "source_domain": "anthropic.com",
-        "homepage_url": "https://www.anthropic.com/news",
-    },
-    {
-        "slug": "google-deepmind",
-        "display_name": "Google DeepMind",
-        "source_domain": "deepmind.google",
-        "homepage_url": "https://deepmind.google/discover/blog/",
-    },
-]
+MAX_ANALYSIS_TAGS = 5
+MAX_KEY_POINTS = 3
+AGGREGATION_SOURCES_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "aggregation_sources.json"
+SKIP_LINK_PREFIXES = ("javascript:", "mailto:", "tel:", "#")
+SKIP_FILE_SUFFIXES = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".ico",
+    ".pdf",
+    ".xml",
+    ".json",
+    ".zip",
+    ".mp4",
+    ".mp3",
+}
+TRACKING_QUERY_KEYS = {"ref", "source", "spm", "from", "fbclid", "gclid"}
+REFRESH_JOB_KEY_PREFIX = "aggregation:refresh:job:"
+
+
+@dataclass(slots=True)
+class AggregateAnalysisResult:
+    title: str | None
+    summary_text: str
+    tags: list[str]
+    model_provider: str | None
+    model_name: str | None
+    model_version: str | None
+
+
+@dataclass(slots=True)
+class FeedEntryCandidate:
+    source_url: str
+    source_title: str | None
+    published_at: datetime | None
 
 
 class AggregationService:
     def __init__(self, db: Session) -> None:
         self.db = db
+        self.llm_client = OpenAICompatibleClient()
 
     def ensure_preset_sources(self) -> None:
-        existing = {
-            source.slug: source
-            for source in self.db.scalars(
-                select(SourceCreator).where(SourceCreator.slug.in_([item["slug"] for item in PRESET_SOURCE_CREATORS]))
-            )
+        preset_sources = _load_preset_source_configs()
+        if not preset_sources:
+            return
+
+        existing_sources = list(self.db.scalars(select(SourceCreator)))
+        existing_by_slug: dict[str, SourceCreator] = {source.slug: source for source in existing_sources}
+        existing_by_domain: dict[str, SourceCreator] = {
+            source.source_domain: source for source in existing_sources if source.source_domain
         }
 
         changed = False
-        for item in PRESET_SOURCE_CREATORS:
-            current = existing.get(item["slug"])
+        for item in preset_sources:
+            current = existing_by_slug.get(item["slug"]) or existing_by_domain.get(item["source_domain"])
             if current:
-                next_display = item["display_name"].strip()
-                next_domain = item["source_domain"].strip().lower()
-                next_url = item["homepage_url"].strip()
-                if (
-                    current.display_name != next_display
-                    or current.source_domain != next_domain
-                    or current.homepage_url != next_url
-                ):
+                next_slug = item["slug"]
+                next_display = item["display_name"]
+                next_domain = item["source_domain"]
+                next_feed_url = item["feed_url"]
+                next_homepage_url = item["homepage_url"]
+                source_changed = False
+
+                if current.slug != next_slug:
+                    conflict = existing_by_slug.get(next_slug)
+                    if not conflict or conflict.id == current.id:
+                        existing_by_slug.pop(current.slug, None)
+                        current.slug = next_slug
+                        existing_by_slug[next_slug] = current
+                        source_changed = True
+                if current.display_name != next_display:
                     current.display_name = next_display
+                    source_changed = True
+                if current.source_domain != next_domain:
+                    existing_by_domain.pop(current.source_domain, None)
                     current.source_domain = next_domain
-                    current.homepage_url = next_url
+                    existing_by_domain[next_domain] = current
+                    source_changed = True
+                if current.feed_url != next_feed_url:
+                    current.feed_url = next_feed_url
+                    source_changed = True
+                if current.homepage_url != next_homepage_url:
+                    current.homepage_url = next_homepage_url
+                    source_changed = True
+
+                if source_changed:
                     self.db.add(current)
                     changed = True
                 continue
 
             creator = SourceCreator(
-                slug=item["slug"].strip(),
-                display_name=item["display_name"].strip(),
-                source_domain=item["source_domain"].strip().lower(),
-                homepage_url=item["homepage_url"].strip(),
-                is_active=True,
+                slug=item["slug"],
+                display_name=item["display_name"],
+                source_domain=item["source_domain"],
+                feed_url=item["feed_url"],
+                homepage_url=item["homepage_url"],
+                is_active=item["is_active"],
+                is_deleted=False,
+                deleted_at=None,
             )
             self.db.add(creator)
+            existing_by_slug[creator.slug] = creator
+            existing_by_domain[creator.source_domain] = creator
             changed = True
 
         if changed:
@@ -84,32 +142,50 @@ class AggregationService:
     def refresh_active_items(self) -> RefreshAggregatesResponse:
         sources = list(
             self.db.scalars(
-                select(SourceCreator).where(SourceCreator.is_active.is_(True)).order_by(SourceCreator.slug.asc())
+                select(SourceCreator)
+                .where(
+                    SourceCreator.is_active.is_(True),
+                    SourceCreator.is_deleted.is_(False),
+                )
+                .order_by(SourceCreator.slug.asc())
             )
         )
+        return self._refresh_sources(sources)
+
+    def refresh_single_source(self, *, source_id: UUID) -> RefreshAggregatesResponse:
+        source = self.db.scalar(
+            select(SourceCreator).where(
+                SourceCreator.id == source_id,
+                SourceCreator.is_deleted.is_(False),
+            )
+        )
+        if not source:
+            raise ValueError("信息源不存在")
+        return self._refresh_sources([source])
+
+    def _refresh_sources(self, sources: list[SourceCreator]) -> RefreshAggregatesResponse:
         refreshed = 0
         failed = 0
 
         for source in sources:
-            aggregate_item: AggregateItem | None = None
             try:
-                aggregate_item = self._ensure_item_for_source(source)
-                if self._run_analysis(aggregate_item):
+                feed_entries = self._collect_feed_entries(source)
+            except Exception:  # noqa: BLE001
+                failed += 1
+                continue
+
+            items = self._ensure_items_for_source(source=source, feed_entries=feed_entries)
+            if not items:
+                failed += 1
+                continue
+
+            for item in items:
+                if not self._should_run_analysis(item):
+                    continue
+                if self._run_analysis(item=item, source=source):
                     refreshed += 1
                 else:
                     failed += 1
-            except Exception as exc:  # noqa: BLE001
-                failed += 1
-                try:
-                    if aggregate_item is None:
-                        aggregate_item = self._get_item_for_source(source)
-                    if aggregate_item:
-                        aggregate_item.analysis_status = "failed"
-                        aggregate_item.analysis_error = (str(exc).strip() or "聚合分析失败")[:500]
-                        aggregate_item.updated_at = datetime.now(timezone.utc)
-                        self.db.add(aggregate_item)
-                except Exception:  # noqa: BLE001
-                    pass
 
         self.db.commit()
         return RefreshAggregatesResponse(
@@ -118,24 +194,93 @@ class AggregationService:
             failed_items=failed,
         )
 
-    def _get_item_for_source(self, source: SourceCreator) -> AggregateItem | None:
-        stmt = (
-            select(AggregateItem)
-            .where(AggregateItem.source_creator_id == source.id)
-            .order_by(AggregateItem.updated_at.desc())
-            .limit(1)
-        )
-        return self.db.scalar(stmt)
+    def _collect_feed_entries(self, source: SourceCreator) -> list[FeedEntryCandidate]:
+        feed_xml = self._fetch_feed_xml(source.feed_url)
+        raw_entries = self._parse_feed_entries(feed_xml)
 
-    def _ensure_item_for_source(self, source: SourceCreator) -> AggregateItem:
-        source_url = source.homepage_url.strip()
+        max_items = max(1, settings.aggregation_max_items_per_source)
+        entries: list[FeedEntryCandidate] = []
+        seen_urls: set[str] = set()
+
+        for raw_entry in raw_entries:
+            source_url = (raw_entry.get("link") or "").strip()
+            if not source_url:
+                continue
+            if source_url.lower().startswith(SKIP_LINK_PREFIXES):
+                continue
+
+            try:
+                _, normalized_url, host = self._normalize_source_url(source_url)
+            except ValueError:
+                continue
+
+            if not self._domain_matches(host, source.source_domain):
+                continue
+            if self._looks_like_asset_url(normalized_url):
+                continue
+            if normalized_url in seen_urls:
+                continue
+
+            seen_urls.add(normalized_url)
+            entries.append(
+                FeedEntryCandidate(
+                    source_url=normalized_url,
+                    source_title=self._normalize_title(raw_entry.get("title")),
+                    published_at=self._parse_datetime(raw_entry.get("published")),
+                )
+            )
+            if len(entries) >= max_items:
+                break
+
+        if not entries:
+            raise ValueError("未解析到可用的 RSS/Atom 条目")
+
+        return entries
+
+    def _ensure_items_for_source(
+        self,
+        *,
+        source: SourceCreator,
+        feed_entries: list[FeedEntryCandidate],
+    ) -> list[AggregateItem]:
+        items: list[AggregateItem] = []
+
+        for entry in feed_entries:
+            try:
+                item = self._ensure_item_for_source_url(
+                    source=source,
+                    source_url=entry.source_url,
+                    source_title=entry.source_title,
+                    published_at=entry.published_at,
+                )
+            except ValueError:
+                continue
+            items.append(item)
+
+        return items
+
+    def _ensure_item_for_source_url(
+        self,
+        *,
+        source: SourceCreator,
+        source_url: str,
+        source_title: str | None,
+        published_at: datetime | None,
+    ) -> AggregateItem:
         source_url_raw, source_url_normalized, source_domain = self._normalize_source_url(source_url)
+        if not self._domain_matches(source_domain, source.source_domain):
+            raise ValueError("来源域名不匹配")
+
         item = self.db.scalar(select(AggregateItem).where(AggregateItem.source_url_normalized == source_url_normalized))
         if item:
             item.source_creator_id = source.id
             item.source_url = source_url_raw
             item.source_domain = source_domain
-            item.tags_json = sorted(set(item.tags_json or []) | {source.slug})
+            if source_title:
+                item.source_title = source_title[:512]
+            if published_at and (item.published_at is None or published_at > item.published_at):
+                item.published_at = published_at
+            item.tags_json = self._merge_tags(item.tags_json or [], source.slug)
             self.db.add(item)
             self.db.flush()
             return item
@@ -145,88 +290,336 @@ class AggregationService:
             source_url=source_url_raw,
             source_url_normalized=source_url_normalized,
             source_domain=source_domain,
-            source_title=None,
+            source_title=(source_title or "")[:512] or None,
             tags_json=[source.slug],
             analysis_status="pending",
             analysis_error=None,
             summary_text=None,
             key_points_json=[],
-            model_provider=settings.note_model_provider,
-            model_name=settings.note_model_name,
-            model_version=settings.note_model_version,
+            model_provider=self._analysis_model_provider(),
+            model_name=self._analysis_model_name(),
+            model_version=self._analysis_model_version(),
+            published_at=published_at,
         )
         self.db.add(item)
         self.db.flush()
         return item
 
-    def _run_analysis(self, item: AggregateItem) -> bool:
+    def _should_run_analysis(self, item: AggregateItem) -> bool:
+        if item.analysis_status in {"pending", "failed"}:
+            return True
+        if item.analysis_status == "running":
+            return False
+        return not bool((item.summary_text or "").strip())
+
+    def _run_analysis(self, *, item: AggregateItem, source: SourceCreator) -> bool:
         item.analysis_status = "running"
         item.analysis_error = None
         self.db.add(item)
         self.db.flush()
 
         try:
-            title, content = self._fetch_source_content(item.source_url)
+            title, content, _ = self._fetch_source_document(item.source_url)
             if not content:
                 raise ValueError("来源内容为空，无法分析")
 
-            summary_core = content[:260].strip()
-            summary_text = f"该内容来自 {item.source_domain}。核心信息：{summary_core}"
-            key_points: list[str] = []
-            for piece in re.split(r"[。！？.!?]", content):
-                line = piece.strip()
-                if len(line) < 12:
-                    continue
-                key_points.append(line[:96])
-                if len(key_points) >= 3:
-                    break
-            if not key_points:
-                key_points = [summary_core[:96]]
-            while len(key_points) < 3:
-                key_points.append("建议结合原文阅读全文，避免断章取义。")
+            if self._should_use_model_analysis():
+                result = self._analyze_with_model(
+                    source_url=item.source_url,
+                    source_domain=item.source_domain,
+                    source_title=title,
+                    source_slug=source.slug,
+                    content=content,
+                )
+            else:
+                result = self._analyze_local(
+                    source_domain=item.source_domain,
+                    source_slug=source.slug,
+                    source_title=title,
+                    content=content,
+                )
 
-            item.source_title = title or item.source_title
-            item.summary_text = summary_text
-            item.key_points_json = key_points[:3]
+            item.source_title = (result.title or item.source_title or "")[:512] or None
+            item.summary_text = result.summary_text
+            item.tags_json = result.tags
+            item.key_points_json = self._extract_key_points(content=content, summary_text=result.summary_text)
             item.analysis_status = "succeeded"
             item.analysis_error = None
-            item.model_provider = settings.note_model_provider
-            item.model_name = settings.note_model_name
-            item.model_version = settings.note_model_version
+            item.model_provider = result.model_provider
+            item.model_name = result.model_name
+            item.model_version = result.model_version
             self.db.add(item)
             self.db.flush()
             return True
         except Exception as exc:  # noqa: BLE001
-            error_message = str(exc).strip() or "分析失败"
             item.analysis_status = "failed"
-            item.analysis_error = error_message[:500]
+            item.analysis_error = (str(exc).strip() or "聚合分析失败")[:500]
             self.db.add(item)
             self.db.flush()
             return False
 
-    def _fetch_source_content(self, source_url: str) -> tuple[str | None, str]:
+    def _analyze_with_model(
+        self,
+        *,
+        source_url: str,
+        source_domain: str,
+        source_title: str | None,
+        source_slug: str,
+        content: str,
+    ) -> AggregateAnalysisResult:
+        try:
+            result = self.llm_client.analyze(
+                source_url=source_url,
+                source_domain=source_domain,
+                source_title=source_title,
+                content=content,
+                repair_mode=False,
+            )
+        except OpenAICompatibleClientError as exc:
+            if exc.code != "invalid_output":
+                raise ValueError(exc.message) from exc
+            try:
+                result = self.llm_client.analyze(
+                    source_url=source_url,
+                    source_domain=source_domain,
+                    source_title=source_title,
+                    content=content,
+                    repair_mode=True,
+                )
+            except OpenAICompatibleClientError as second_exc:
+                raise ValueError(second_exc.message) from second_exc
+
+        summary_text = (result.summary or "").strip()[:400]
+        if not summary_text:
+            raise ValueError("模型未返回有效摘要")
+
+        tags = self._merge_tags(result.tags, source_slug)
+        if not tags:
+            tags = [source_slug]
+
+        return AggregateAnalysisResult(
+            title=(result.title or source_title or "")[:512] or None,
+            summary_text=summary_text,
+            tags=tags,
+            model_provider=settings.llm_provider_name,
+            model_name=result.model_name or settings.llm_model_name,
+            model_version=None,
+        )
+
+    def _analyze_local(
+        self,
+        *,
+        source_domain: str,
+        source_slug: str,
+        source_title: str | None,
+        content: str,
+    ) -> AggregateAnalysisResult:
+        summary_core = content[:260].strip()
+        summary_text = f"该内容来自 {source_domain}。核心信息：{summary_core}"[:400]
+        tags = self._extract_local_tags(content=content, source_domain=source_domain, source_slug=source_slug)
+        if not tags:
+            tags = [source_slug]
+
+        return AggregateAnalysisResult(
+            title=source_title,
+            summary_text=summary_text,
+            tags=tags[:MAX_ANALYSIS_TAGS],
+            model_provider=settings.note_model_provider,
+            model_name=settings.note_model_name,
+            model_version=settings.note_model_version,
+        )
+
+    def _extract_local_tags(self, *, content: str, source_domain: str, source_slug: str) -> list[str]:
+        lowered = content.lower()
+        tags = self._merge_tags(
+            source_slug,
+            [
+                item
+                for item in ("ai", "llm", "agent", "rag", "prompt", "model", "openai", "anthropic", "gpt")
+                if item in lowered
+            ],
+            [part for part in re.split(r"[^a-z0-9_-]+", source_domain.lower()) if len(part) >= 2],
+        )
+        return tags[:MAX_ANALYSIS_TAGS]
+
+    def _extract_key_points(self, *, content: str, summary_text: str) -> list[str]:
+        key_points: list[str] = []
+        for piece in re.split(r"[。！？.!?]", content):
+            line = piece.strip()
+            if len(line) < 12:
+                continue
+            key_points.append(line[:96])
+            if len(key_points) >= MAX_KEY_POINTS:
+                break
+        if not key_points:
+            key_points = [summary_text[:96]]
+        while len(key_points) < MAX_KEY_POINTS:
+            key_points.append("建议结合原文阅读全文，避免断章取义。")
+        return key_points[:MAX_KEY_POINTS]
+
+    def _merge_tags(self, *groups: Any) -> list[str]:
+        merged: list[str] = []
+        seen: set[str] = set()
+
+        for group in groups:
+            values: list[Any]
+            if isinstance(group, str):
+                values = [group]
+            elif isinstance(group, list):
+                values = group
+            else:
+                continue
+            for raw in values:
+                if not isinstance(raw, str):
+                    continue
+                tag = raw.strip().lower()
+                if not tag or tag in seen:
+                    continue
+                if not re.fullmatch(r"[a-z0-9_-]+", tag):
+                    continue
+                seen.add(tag)
+                merged.append(tag)
+                if len(merged) >= MAX_ANALYSIS_TAGS:
+                    return merged
+
+        return merged
+
+    def _should_use_model_analysis(self) -> bool:
+        if not settings.aggregation_use_model_analysis:
+            return False
+        return bool((settings.llm_api_key or "").strip())
+
+    def _analysis_model_provider(self) -> str:
+        if self._should_use_model_analysis():
+            return settings.llm_provider_name
+        return settings.note_model_provider
+
+    def _analysis_model_name(self) -> str:
+        if self._should_use_model_analysis():
+            return settings.llm_model_name
+        return settings.note_model_name
+
+    def _analysis_model_version(self) -> str | None:
+        if self._should_use_model_analysis():
+            return None
+        return settings.note_model_version
+
+    def _fetch_feed_xml(self, feed_url: str) -> str:
         request = urllib.request.Request(
-            source_url,
+            feed_url,
             headers={
-                "User-Agent": "PrismAggregatorBot/1.0",
-                "Accept": "text/html,application/xhtml+xml",
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
             },
         )
         with urllib.request.urlopen(request, timeout=settings.note_fetch_timeout_seconds) as response:
             raw = response.read(settings.note_fetch_max_bytes)
             encoding = response.headers.get_content_charset() or "utf-8"
 
-        text = raw.decode(encoding, errors="ignore")
-        title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
+        return raw.decode(encoding, errors="ignore")
+
+    def _parse_feed_entries(self, xml_text: str) -> list[dict[str, str | None]]:
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError as exc:
+            raise ValueError("RSS/Atom 解析失败") from exc
+
+        root_name = _local_name(root.tag)
+        if root_name in {"rss", "rdf", "rdf:rdf"}:
+            return self._parse_rss_entries(root)
+        if root_name == "feed":
+            return self._parse_atom_entries(root)
+
+        # fallback detection
+        if any(_local_name(child.tag) == "item" for child in root.iter()):
+            return self._parse_rss_entries(root)
+        if any(_local_name(child.tag) == "entry" for child in root.iter()):
+            return self._parse_atom_entries(root)
+        return []
+
+    def _parse_rss_entries(self, root: ET.Element) -> list[dict[str, str | None]]:
+        channel = None
+        for child in root:
+            if _local_name(child.tag) == "channel":
+                channel = child
+                break
+        if channel is None:
+            channel = root
+
+        entries: list[dict[str, str | None]] = []
+        for item in channel:
+            if _local_name(item.tag) != "item":
+                continue
+            link = _first_child_text(item, "link")
+            if not link:
+                continue
+            title = _first_child_text(item, "title")
+            published = _first_child_text(item, "pubDate") or _first_child_text(item, "date")
+            entries.append({"link": link, "title": title, "published": published})
+        return entries
+
+    def _parse_atom_entries(self, root: ET.Element) -> list[dict[str, str | None]]:
+        entries: list[dict[str, str | None]] = []
+        for entry in root:
+            if _local_name(entry.tag) != "entry":
+                continue
+
+            link = None
+            for child in entry:
+                if _local_name(child.tag) != "link":
+                    continue
+                href = (child.attrib.get("href") or "").strip()
+                rel = (child.attrib.get("rel") or "").strip().lower()
+                if not href:
+                    continue
+                if not rel or rel == "alternate":
+                    link = href
+                    break
+                if link is None:
+                    link = href
+
+            if not link:
+                continue
+
+            title = _first_child_text(entry, "title")
+            published = _first_child_text(entry, "published") or _first_child_text(entry, "updated")
+            entries.append({"link": link, "title": title, "published": published})
+
+        return entries
+
+    def _fetch_source_document(self, source_url: str) -> tuple[str | None, str, str]:
+        request = urllib.request.Request(
+            source_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=settings.note_fetch_timeout_seconds) as response:
+            raw = response.read(settings.note_fetch_max_bytes)
+            encoding = response.headers.get_content_charset() or "utf-8"
+            resolved_url = response.geturl()
+
+        document = raw.decode(encoding, errors="ignore")
+        title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", document)
         title = html.unescape(title_match.group(1).strip()) if title_match else None
 
-        cleaned = re.sub(r"(?is)<(script|style|noscript).*?>.*?</\\1>", " ", text)
+        cleaned = re.sub(r"(?is)<(script|style|noscript).*?>.*?</\\1>", " ", document)
         plain = re.sub(r"(?is)<[^>]+>", " ", cleaned)
         plain = html.unescape(plain)
         plain = re.sub(r"\s+", " ", plain).strip()
         if len(plain) > settings.note_body_max_chars:
             plain = plain[: settings.note_body_max_chars]
-        return title, plain
+
+        return title, plain, resolved_url
 
     def _normalize_source_url(self, raw_url: str) -> tuple[str, str, str]:
         source_url = raw_url.strip()
@@ -258,7 +651,29 @@ class AggregationService:
         path = parsed.path or "/"
         if not path.startswith("/"):
             path = f"/{path}"
-        return urllib.parse.urlunsplit((scheme, netloc, path, parsed.query, ""))
+        query = self._strip_tracking_query(parsed.query)
+        return urllib.parse.urlunsplit((scheme, netloc, path, query, ""))
+
+    def _strip_tracking_query(self, query: str) -> str:
+        if not query:
+            return ""
+        pairs = urllib.parse.parse_qsl(query, keep_blank_values=True)
+        kept: list[tuple[str, str]] = []
+        for key, value in pairs:
+            normalized_key = key.strip().lower()
+            if not normalized_key:
+                continue
+            if normalized_key.startswith("utm_") or normalized_key in TRACKING_QUERY_KEYS:
+                continue
+            kept.append((key, value))
+        return urllib.parse.urlencode(kept, doseq=True)
+
+    def _looks_like_asset_url(self, url: str) -> bool:
+        parsed = urllib.parse.urlsplit(url)
+        path = (parsed.path or "").strip().lower()
+        if not path:
+            return False
+        return any(path.endswith(ext) for ext in SKIP_FILE_SUFFIXES)
 
     def _ensure_public_host(self, host: str) -> None:
         if host == "localhost" or host.endswith(".local"):
@@ -276,3 +691,221 @@ class AggregationService:
             or ip.is_unspecified
         ):
             raise ValueError("不支持内网或本地链接")
+
+    def _domain_matches(self, host: str, source_domain: str) -> bool:
+        normalized_host = host.strip().lower().strip(".")
+        normalized_domain = source_domain.strip().lower().strip(".")
+        if not normalized_host or not normalized_domain:
+            return False
+        return normalized_host == normalized_domain or normalized_host.endswith(f".{normalized_domain}")
+
+    def _parse_datetime(self, raw: str | None) -> datetime | None:
+        if not raw:
+            return None
+        value = raw.strip()
+        if not value:
+            return None
+
+        try:
+            dt = parsedate_to_datetime(value)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except (TypeError, ValueError, IndexError):
+            pass
+
+        try:
+            iso_value = value.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(iso_value)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+    def _normalize_title(self, raw: str | None) -> str | None:
+        if raw is None:
+            return None
+        title = raw.strip()
+        if not title:
+            return None
+        return title[:512]
+
+
+def _load_preset_source_configs() -> tuple[dict[str, Any], ...]:
+    raw_items = _load_source_config_json(AGGREGATION_SOURCES_CONFIG_PATH)
+
+    normalized_items: list[dict[str, Any]] = []
+    seen_slugs: set[str] = set()
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+
+        slug = str(raw_item.get("slug", "")).strip().lower()
+        display_name = str(raw_item.get("display_name", "")).strip()
+        source_domain = str(raw_item.get("source_domain", "")).strip().lower().strip(".")
+        feed_url = str(raw_item.get("feed_url", "")).strip()
+        homepage_url = str(raw_item.get("homepage_url", "")).strip()
+        is_active = _normalize_bool(raw_item.get("is_active"), default=True)
+
+        if not slug or slug in seen_slugs:
+            continue
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,63}", slug):
+            continue
+        if not display_name or not source_domain or not feed_url or not homepage_url:
+            continue
+        parsed_feed = urllib.parse.urlsplit(feed_url)
+        parsed_home = urllib.parse.urlsplit(homepage_url)
+        if parsed_feed.scheme.lower() not in {"http", "https"}:
+            continue
+        if parsed_home.scheme.lower() not in {"http", "https"}:
+            continue
+
+        seen_slugs.add(slug)
+        normalized_items.append(
+            {
+                "slug": slug,
+                "display_name": display_name,
+                "source_domain": source_domain,
+                "feed_url": feed_url,
+                "homepage_url": homepage_url,
+                "is_active": is_active,
+            }
+        )
+
+    return tuple(normalized_items)
+
+
+def _load_source_config_json(path: Path) -> list[Any]:
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(f"无法读取聚合信息源配置文件: {path}") from exc
+
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"聚合信息源配置文件 JSON 格式不合法: {path}") from exc
+
+    if not isinstance(data, list):
+        raise RuntimeError(f"聚合信息源配置文件格式错误，根节点必须是数组: {path}")
+
+    return data
+
+
+def _normalize_bool(raw: Any, *, default: bool) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in {"1", "true", "yes", "y", "on"}:
+            return True
+        if value in {"0", "false", "no", "n", "off"}:
+            return False
+    if isinstance(raw, int):
+        return raw != 0
+    return default
+
+
+def _local_name(tag: str) -> str:
+    if not tag:
+        return ""
+    if tag.startswith("{") and "}" in tag:
+        return tag.split("}", 1)[1].lower()
+    return tag.lower()
+
+
+def _first_child_text(node: ET.Element, child_name: str) -> str | None:
+    target = child_name.lower()
+    for child in node:
+        if _local_name(child.tag) != target:
+            continue
+        text = "".join(child.itertext()).strip()
+        if text:
+            return text
+    return None
+
+
+def _refresh_job_key(job_id: str) -> str:
+    return f"{REFRESH_JOB_KEY_PREFIX}{job_id}"
+
+
+def _save_refresh_job(redis: Redis, payload: dict[str, Any]) -> None:
+    ttl = max(60, settings.aggregation_refresh_job_ttl_seconds)
+    redis.setex(_refresh_job_key(payload["job_id"]), ttl, json.dumps(payload, ensure_ascii=False))
+
+
+def enqueue_aggregation_refresh_job(*, source_id: UUID | None, source_slug: str | None) -> dict[str, Any]:
+    redis = get_redis()
+    job_id = uuid4().hex
+    payload: dict[str, Any] = {
+        "job_id": job_id,
+        "status": "queued",
+        "scope": "source" if source_id else "all",
+        "source_id": str(source_id) if source_id else None,
+        "source_slug": source_slug,
+        "total_sources": None,
+        "refreshed_items": None,
+        "failed_items": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": None,
+        "finished_at": None,
+        "error_message": None,
+    }
+    _save_refresh_job(redis, payload)
+    return payload
+
+
+def get_aggregation_refresh_job(job_id: str) -> dict[str, Any] | None:
+    redis = get_redis()
+    raw = redis.get(_refresh_job_key(job_id))
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def run_aggregation_refresh_job(*, job_id: str, source_id: str | None) -> None:
+    redis = get_redis()
+    payload = get_aggregation_refresh_job(job_id) or {
+        "job_id": job_id,
+        "status": "queued",
+        "scope": "source" if source_id else "all",
+        "source_id": source_id,
+        "source_slug": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    payload["status"] = "running"
+    payload["started_at"] = datetime.now(timezone.utc).isoformat()
+    payload["finished_at"] = None
+    payload["error_message"] = None
+    _save_refresh_job(redis, payload)
+
+    db = SessionLocal()
+    try:
+        service = AggregationService(db)
+        service.ensure_preset_sources()
+        if source_id:
+            result = service.refresh_single_source(source_id=UUID(source_id))
+        else:
+            result = service.refresh_active_items()
+
+        payload["status"] = "succeeded"
+        payload["total_sources"] = result.total_sources
+        payload["refreshed_items"] = result.refreshed_items
+        payload["failed_items"] = result.failed_items
+        payload["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _save_refresh_job(redis, payload)
+    except Exception as exc:  # noqa: BLE001
+        payload["status"] = "failed"
+        payload["error_message"] = (str(exc).strip() or "聚合刷新失败")[:500]
+        payload["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _save_refresh_job(redis, payload)
+    finally:
+        db.close()

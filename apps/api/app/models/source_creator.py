@@ -14,14 +14,18 @@ class SourceCreator(Base):
         Index("ix_source_creators_slug", "slug", unique=True),
         Index("ix_source_creators_source_domain", "source_domain", unique=True),
         Index("ix_source_creators_is_active", "is_active"),
+        Index("ix_source_creators_is_deleted", "is_deleted"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     source_domain: Mapped[str] = mapped_column(String(255), nullable=False)
+    feed_url: Mapped[str] = mapped_column(Text, nullable=False)
     homepage_url: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -35,4 +39,3 @@ class SourceCreator(Base):
     )
 
     aggregate_items = relationship("AggregateItem", back_populates="source_creator")
-

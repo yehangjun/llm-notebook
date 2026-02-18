@@ -1,22 +1,29 @@
+import urllib.parse
 from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import ALLOWED_UI_LANGUAGES
 from app.core.config import settings
 from app.models.note import Note
+from app.models.source_creator import SourceCreator
 from app.models.user import User
 from app.repositories.note_repo import NoteRepository
 from app.repositories.session_repo import SessionRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import GenericMessageResponse
-from app.schemas.feed import RefreshAggregatesResponse
 from app.schemas.note import AdminNoteItem
+from app.schemas.source_creator import AdminCreateSourceCreatorRequest, AdminUpdateSourceCreatorRequest
 from app.schemas.user import AdminUpdateUserRequest
-from app.services.aggregation_service import AggregationService
+from app.services.aggregation_service import (
+    AggregationService,
+    enqueue_aggregation_refresh_job,
+    get_aggregation_refresh_job,
+)
 
 
 class AdminService:
@@ -133,10 +140,176 @@ class AdminService:
             ) from exc
         return GenericMessageResponse(message="笔记已恢复")
 
-    def refresh_aggregates(self) -> RefreshAggregatesResponse:
-        service = AggregationService(self.db)
-        service.ensure_preset_sources()
-        return service.refresh_active_items()
+    def list_sources(
+        self,
+        *,
+        keyword: str | None,
+        deleted_filter: str | None,
+        active_filter: str | None,
+        offset: int,
+        limit: int,
+    ) -> list[SourceCreator]:
+        deleted_value = self._validate_deleted_filter(deleted_filter)
+        active_value = self._validate_active_filter(active_filter)
+        keyword_value = keyword.strip() if keyword else None
+
+        stmt = select(SourceCreator)
+        if deleted_value is not None:
+            stmt = stmt.where(SourceCreator.is_deleted.is_(deleted_value))
+        if active_value is not None:
+            stmt = stmt.where(SourceCreator.is_active.is_(active_value))
+        if keyword_value:
+            like = f"%{keyword_value}%"
+            stmt = stmt.where(
+                or_(
+                    SourceCreator.slug.ilike(like),
+                    SourceCreator.display_name.ilike(like),
+                    SourceCreator.source_domain.ilike(like),
+                    SourceCreator.feed_url.ilike(like),
+                    SourceCreator.homepage_url.ilike(like),
+                )
+            )
+
+        stmt = stmt.order_by(SourceCreator.updated_at.desc(), SourceCreator.slug.asc()).offset(offset).limit(limit)
+        return list(self.db.scalars(stmt))
+
+    def create_source(self, *, payload: AdminCreateSourceCreatorRequest) -> SourceCreator:
+        slug = self._normalize_slug(payload.slug)
+        display_name = self._normalize_display_name(payload.display_name)
+        source_domain = self._normalize_source_domain(payload.source_domain)
+        feed_url = self._normalize_http_url(payload.feed_url)
+        homepage_url = self._normalize_http_url(payload.homepage_url)
+        self._ensure_domain_matches_url(source_domain=source_domain, url=feed_url, field_label="feed_url")
+        self._ensure_domain_matches_url(source_domain=source_domain, url=homepage_url, field_label="homepage_url")
+
+        existing_by_slug = self.db.scalar(select(SourceCreator).where(SourceCreator.slug == slug))
+        if existing_by_slug:
+            if existing_by_slug.is_deleted:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该 slug 已存在（已删除），请恢复后再使用")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该 slug 已存在")
+
+        existing_by_domain = self.db.scalar(select(SourceCreator).where(SourceCreator.source_domain == source_domain))
+        if existing_by_domain:
+            if existing_by_domain.is_deleted:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="该 source_domain 已存在（已删除），请恢复后再使用",
+                )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该 source_domain 已存在")
+
+        source = SourceCreator(
+            slug=slug,
+            display_name=display_name,
+            source_domain=source_domain,
+            feed_url=feed_url,
+            homepage_url=homepage_url,
+            is_active=payload.is_active,
+            is_deleted=False,
+            deleted_at=None,
+        )
+        self.db.add(source)
+        self.db.commit()
+        self.db.refresh(source)
+        return source
+
+    def update_source(self, *, source_id: UUID, payload: AdminUpdateSourceCreatorRequest) -> SourceCreator:
+        source = self.db.scalar(select(SourceCreator).where(SourceCreator.id == source_id))
+        if not source:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="信息源不存在")
+        if source.is_deleted:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="信息源已删除，请先恢复")
+
+        changed = False
+        if payload.display_name is not None:
+            source.display_name = self._normalize_display_name(payload.display_name)
+            changed = True
+        if payload.source_domain is not None:
+            source.source_domain = self._normalize_source_domain(payload.source_domain)
+            changed = True
+        if payload.feed_url is not None:
+            source.feed_url = self._normalize_http_url(payload.feed_url)
+            changed = True
+        if payload.homepage_url is not None:
+            source.homepage_url = self._normalize_http_url(payload.homepage_url)
+            changed = True
+        if payload.is_active is not None:
+            source.is_active = payload.is_active
+            changed = True
+
+        self._ensure_domain_matches_url(source_domain=source.source_domain, url=source.feed_url, field_label="feed_url")
+        self._ensure_domain_matches_url(
+            source_domain=source.source_domain,
+            url=source.homepage_url,
+            field_label="homepage_url",
+        )
+
+        if not changed:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未提供可更新字段")
+
+        self.db.add(source)
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="slug 或 source_domain 与现有信息源冲突") from exc
+        self.db.refresh(source)
+        return source
+
+    def delete_source(self, *, source_id: UUID) -> GenericMessageResponse:
+        source = self.db.scalar(select(SourceCreator).where(SourceCreator.id == source_id))
+        if not source:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="信息源不存在")
+        if source.is_deleted:
+            return GenericMessageResponse(message="信息源已删除")
+
+        source.is_deleted = True
+        source.deleted_at = datetime.now(timezone.utc)
+        source.is_active = False
+        self.db.add(source)
+        self.db.commit()
+        return GenericMessageResponse(message="信息源已删除")
+
+    def restore_source(self, *, source_id: UUID) -> GenericMessageResponse:
+        source = self.db.scalar(select(SourceCreator).where(SourceCreator.id == source_id))
+        if not source:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="信息源不存在")
+        if not source.is_deleted:
+            return GenericMessageResponse(message="信息源已恢复")
+
+        source.is_deleted = False
+        source.deleted_at = None
+        self.db.add(source)
+        self.db.commit()
+        return GenericMessageResponse(message="信息源已恢复")
+
+    def enqueue_aggregate_refresh(self, *, source_id: UUID | None) -> dict[str, str | None]:
+        # Keep preset config and DB sources in sync before running refresh jobs.
+        AggregationService(self.db).ensure_preset_sources()
+
+        source: SourceCreator | None = None
+        if source_id is not None:
+            source = self.db.scalar(
+                select(SourceCreator).where(
+                    SourceCreator.id == source_id,
+                    SourceCreator.is_deleted.is_(False),
+                )
+            )
+            if not source:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="信息源不存在")
+
+        payload = enqueue_aggregation_refresh_job(
+            source_id=source.id if source else None,
+            source_slug=source.slug if source else None,
+        )
+        return {
+            "job_id": str(payload["job_id"]),
+            "status": str(payload["status"]),
+            "source_id": str(payload["source_id"]) if payload.get("source_id") else None,
+            "source_slug": str(payload["source_slug"]) if payload.get("source_slug") else None,
+        }
+
+    def get_aggregate_refresh_job(self, *, job_id: str) -> dict | None:
+        return get_aggregation_refresh_job(job_id)
 
     def _build_admin_note_item(self, note: Note) -> AdminNoteItem:
         owner_user_id = note.user.user_id if note.user else ""
@@ -183,3 +356,53 @@ class AdminService:
         if raw == "deleted":
             return True
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的删除状态过滤条件")
+
+    def _validate_active_filter(self, value: str | None) -> bool | None:
+        if value is None:
+            return None
+        raw = value.strip().lower()
+        if raw in {"", "all"}:
+            return None
+        if raw in {"active", "true", "1"}:
+            return True
+        if raw in {"inactive", "false", "0"}:
+            return False
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的启用状态过滤条件")
+
+    def _normalize_slug(self, raw: str) -> str:
+        value = raw.strip().lower()
+        if not value or not value.replace("_", "-").replace("-", "").isalnum():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="slug 仅支持字母数字下划线和中划线")
+        if len(value) > 64:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="slug 长度不能超过 64")
+        return value
+
+    def _normalize_display_name(self, raw: str) -> str:
+        value = raw.strip()
+        if not value:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="display_name 不能为空")
+        return value
+
+    def _normalize_source_domain(self, raw: str) -> str:
+        value = raw.strip().lower().strip(".")
+        if not value or "." not in value:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_domain 格式不合法")
+        return value
+
+    def _normalize_http_url(self, raw: str) -> str:
+        value = raw.strip()
+        parsed = urllib.parse.urlsplit(value)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="URL 仅支持 http/https")
+        return value
+
+    def _ensure_domain_matches_url(self, *, source_domain: str, url: str, field_label: str) -> None:
+        host = (urllib.parse.urlsplit(url).hostname or "").strip().lower()
+        if not host:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_label} 格式不合法")
+        if host == source_domain or host.endswith(f".{source_domain}"):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field_label} 域名与 source_domain 不匹配",
+        )

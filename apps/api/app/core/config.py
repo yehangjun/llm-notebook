@@ -84,6 +84,12 @@ class Settings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("LLM_ALLOW_LOCAL_FALLBACK", "MIMO_ALLOW_LOCAL_FALLBACK"),
     )
+    aggregation_max_items_per_source: int = Field(default=5, validation_alias="AGGREGATION_MAX_ITEMS_PER_SOURCE")
+    aggregation_use_model_analysis: bool = Field(default=False, validation_alias="AGGREGATION_USE_MODEL_ANALYSIS")
+    aggregation_refresh_job_ttl_seconds: int = Field(
+        default=86400,
+        validation_alias="AGGREGATION_REFRESH_JOB_TTL_SECONDS",
+    )
 
     admin_user_id: str = Field(default="admin", validation_alias="ADMIN_USER_ID")
     admin_email: str = Field(default="admin@llm-notebook.local", validation_alias="ADMIN_EMAIL")

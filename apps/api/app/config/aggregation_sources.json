@@ -1,0 +1,34 @@
+[
+  {
+    "slug": "openai-research",
+    "display_name": "OpenAI Research Blog",
+    "source_domain": "openai.com",
+    "feed_url": "https://openai.com/news/rss.xml",
+    "homepage_url": "https://openai.com/news/",
+    "is_active": true
+  },
+  {
+    "slug": "google-research",
+    "display_name": "Google Research Blog",
+    "source_domain": "research.google",
+    "feed_url": "https://research.google/blog/rss/",
+    "homepage_url": "https://research.google/blog/",
+    "is_active": true
+  },
+  {
+    "slug": "microsoft-ai-blog",
+    "display_name": "Microsoft AI Blog",
+    "source_domain": "blogs.microsoft.com",
+    "feed_url": "https://blogs.microsoft.com/ai/feed/",
+    "homepage_url": "https://blogs.microsoft.com/ai/",
+    "is_active": true
+  },
+  {
+    "slug": "jiqizhixin",
+    "display_name": "机器之心",
+    "source_domain": "jiqizhixin.com",
+    "feed_url": "https://www.jiqizhixin.com/rss",
+    "homepage_url": "https://www.jiqizhixin.com/",
+    "is_active": true
+  }
+]
