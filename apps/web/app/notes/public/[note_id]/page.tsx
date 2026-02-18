@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { apiRequest } from "../../../../lib/api";
+import { getStoredUser } from "../../../../lib/auth";
 import { PublicNoteDetail } from "../../../../lib/notes";
 
 export default function PublicNotePage() {
@@ -25,7 +26,10 @@ export default function PublicNotePage() {
     setLoading(true);
     setError("");
     try {
-      const data = await apiRequest<PublicNoteDetail>(`/notes/public/${noteId}`);
+      const uiLanguage = resolveUiLanguage();
+      const data = await apiRequest<PublicNoteDetail>(
+        `/notes/public/${noteId}?ui_language=${encodeURIComponent(uiLanguage)}`,
+      );
       setNote(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
@@ -152,6 +156,17 @@ export default function PublicNotePage() {
       </div>
     </main>
   );
+}
+
+function resolveUiLanguage(): string {
+  const stored = getStoredUser();
+  if (stored?.ui_language) {
+    return stored.ui_language;
+  }
+  if (typeof navigator !== "undefined" && navigator.language) {
+    return navigator.language;
+  }
+  return "zh-CN";
 }
 
 function renderStatus(status: PublicNoteDetail["analysis_status"]): string {

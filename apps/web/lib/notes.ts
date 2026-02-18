@@ -1,6 +1,7 @@
 export type NoteSummaryPublic = {
   id: string;
   status: "succeeded" | "failed";
+  source_language: string | null;
   title: string | null;
   published_at: string | null;
   summary_text: string | null;

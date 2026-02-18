@@ -83,10 +83,6 @@ class Settings(BaseSettings):
         default="v1",
         validation_alias=AliasChoices("LLM_PROMPT_VERSION", "MIMO_PROMPT_VERSION"),
     )
-    llm_allow_local_fallback: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("LLM_ALLOW_LOCAL_FALLBACK", "MIMO_ALLOW_LOCAL_FALLBACK"),
-    )
     network_proxy_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices("NETWORK_PROXY_URL", "GLOBAL_PROXY_URL"),

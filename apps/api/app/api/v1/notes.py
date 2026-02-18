@@ -56,9 +56,13 @@ def list_notes(
 
 
 @router.get("/public/{note_id}", response_model=PublicNoteDetail)
-def get_public_note(note_id: UUID, db: Session = Depends(get_db)):
+def get_public_note(
+    note_id: UUID,
+    ui_language: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     service = NoteService(db)
-    return service.get_public_note_detail(note_id=note_id)
+    return service.get_public_note_detail(note_id=note_id, ui_language=ui_language)
 
 
 @router.get("/{note_id}", response_model=NoteDetail)

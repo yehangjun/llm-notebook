@@ -94,7 +94,6 @@ alembic revision -m "your migration name"
   - `LLM_TIMEOUT_SECONDS`
   - `LLM_MAX_RETRIES`
   - `LLM_PROMPT_VERSION`
-  - `LLM_ALLOW_LOCAL_FALLBACK`
   - `NETWORK_PROXY_URL`（全局网络代理，影响链接抓取与大模型调用）
   - `CONTENT_FETCH_USE_JINA_READER`（全局抓取策略开关，`true` 使用 Jina Reader，`false` 直连来源链接）
   - `JINA_READER_BASE_URL`（Jina Reader 前缀地址，默认 `https://r.jina.ai/`）

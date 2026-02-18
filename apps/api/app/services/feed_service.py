@@ -52,6 +52,7 @@ class FeedService:
         keyword_value = self._normalize_keyword(keyword)
 
         followed_user_ids, followed_source_ids = self._load_following_sets(user.id)
+        prefer_zh = self._prefer_zh_ui(user.ui_language)
 
         fetch_limit = max(limit + offset + 120, 240)
         notes = self._load_public_notes(fetch_limit=fetch_limit)
@@ -87,11 +88,11 @@ class FeedService:
             creator_name = aggregate.source_creator.display_name if aggregate.source_creator else None
             if keyword_value and not self._match_keyword(
                 keyword=keyword_value,
-                source_title=aggregate.source_title,
+                source_title=self._combine_for_search(aggregate.source_title, aggregate.source_title_zh),
                 source_url=aggregate.source_url_normalized,
                 source_domain=aggregate.source_domain,
                 creator_name=creator_name,
-                summary_text=aggregate.summary_text,
+                summary_text=self._combine_for_search(aggregate.summary_text, aggregate.summary_text_zh),
             ):
                 continue
             if not self._match_scope(
@@ -110,6 +111,7 @@ class FeedService:
                 records=picked,
                 followed_user_ids=followed_user_ids,
                 followed_source_ids=followed_source_ids,
+                prefer_zh=prefer_zh,
             )
         )
 
@@ -172,18 +174,21 @@ class FeedService:
                     records.append(("aggregate", aggregate))
 
         followed_user_ids, followed_source_ids = self._load_following_sets(user.id)
+        prefer_zh = self._prefer_zh_ui(user.ui_language)
         return FeedListResponse(
             items=self._build_items_for_records(
                 user=user,
                 records=records,
                 followed_user_ids=followed_user_ids,
                 followed_source_ids=followed_source_ids,
+                prefer_zh=prefer_zh,
             )
         )
 
     def get_item_detail(self, *, user: User, item_type: str, item_id: UUID) -> FeedDetailResponse:
         kind = item_type.strip().lower()
         followed_user_ids, followed_source_ids = self._load_following_sets(user.id)
+        prefer_zh = self._prefer_zh_ui(user.ui_language)
 
         if kind == "note":
             note = self.db.scalar(
@@ -205,12 +210,23 @@ class FeedService:
                 records=[("note", note)],
                 followed_user_ids=followed_user_ids,
                 followed_source_ids=followed_source_ids,
+                prefer_zh=prefer_zh,
             )[0]
             latest_summary = self.note_repo.get_latest_summary(note.id)
+            if latest_summary and latest_summary.source_language == "zh":
+                summary_zh = (
+                    latest_summary.output_summary_zh
+                    or latest_summary.output_summary
+                    or latest_summary.summary_text
+                )
+            else:
+                summary_zh = latest_summary.output_summary_zh if latest_summary else None
             return FeedDetailResponse(
                 item=item,
-                summary_text=(
-                    (latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None
+                summary_text=self._pick_display_text(
+                    prefer_zh=prefer_zh,
+                    original=(latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None,
+                    zh=summary_zh,
                 ),
                 key_points=(
                     (latest_summary.output_tags_json or latest_summary.key_points_json or [])
@@ -245,10 +261,15 @@ class FeedService:
                 records=[("aggregate", aggregate)],
                 followed_user_ids=followed_user_ids,
                 followed_source_ids=followed_source_ids,
+                prefer_zh=prefer_zh,
             )[0]
             return FeedDetailResponse(
                 item=item,
-                summary_text=aggregate.summary_text,
+                summary_text=self._pick_display_text(
+                    prefer_zh=prefer_zh,
+                    original=aggregate.summary_text,
+                    zh=aggregate.summary_text_zh,
+                ),
                 key_points=aggregate.key_points_json or [],
                 note_body_md=None,
                 analysis_error=aggregate.analysis_error,
@@ -267,6 +288,7 @@ class FeedService:
         records: list[tuple[str, Note | AggregateItem]],
         followed_user_ids: set[UUID],
         followed_source_ids: set[UUID],
+        prefer_zh: bool,
     ) -> list[FeedItem]:
         if not records:
             return []
@@ -282,7 +304,24 @@ class FeedService:
             if kind == "note":
                 note = raw  # type: ignore[assignment]
                 latest_summary = self.note_repo.get_latest_summary(note.id)
-                excerpt = (latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None
+                if latest_summary and latest_summary.source_language == "zh":
+                    excerpt_zh = (
+                        latest_summary.output_summary_zh
+                        or latest_summary.output_summary
+                        or latest_summary.summary_text
+                    )
+                    title_zh = latest_summary.output_title_zh or latest_summary.output_title
+                else:
+                    excerpt_zh = latest_summary.output_summary_zh if latest_summary else None
+                    title_zh = latest_summary.output_title_zh if latest_summary else None
+                excerpt_original = (
+                    (latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None
+                )
+                display_title = self._pick_display_text(
+                    prefer_zh=prefer_zh,
+                    original=(latest_summary.output_title if latest_summary else None) or note.source_title,
+                    zh=title_zh,
+                )
                 stats = note_stats.get(
                     note.id,
                     InteractionStats(like_count=0, bookmark_count=0, liked=False, bookmarked=False),
@@ -296,10 +335,12 @@ class FeedService:
                         creator_name=self._creator_name_for_note(note),
                         source_url=note.source_url_normalized,
                         source_domain=note.source_domain,
-                        source_title=note.source_title,
+                        source_title=display_title,
                         tags=note.tags_json or [],
                         analysis_status=note.analysis_status,
-                        summary_excerpt=self._shorten(excerpt),
+                        summary_excerpt=self._shorten(
+                            self._pick_display_text(prefer_zh=prefer_zh, original=excerpt_original, zh=excerpt_zh)
+                        ),
                         published_at=latest_summary.published_at if latest_summary else None,
                         updated_at=note.updated_at,
                         like_count=stats.like_count,
@@ -326,10 +367,20 @@ class FeedService:
                     creator_name=creator.display_name if creator else "",
                     source_url=aggregate.source_url_normalized,
                     source_domain=aggregate.source_domain,
-                    source_title=aggregate.source_title,
+                    source_title=self._pick_display_text(
+                        prefer_zh=prefer_zh,
+                        original=aggregate.source_title,
+                        zh=aggregate.source_title_zh,
+                    ),
                     tags=aggregate.tags_json or [],
                     analysis_status=aggregate.analysis_status,
-                    summary_excerpt=self._shorten(aggregate.summary_text),
+                    summary_excerpt=self._shorten(
+                        self._pick_display_text(
+                            prefer_zh=prefer_zh,
+                            original=aggregate.summary_text,
+                            zh=aggregate.summary_text_zh,
+                        )
+                    ),
                     published_at=aggregate.published_at,
                     updated_at=aggregate.updated_at,
                     like_count=stats.like_count,
@@ -510,6 +561,23 @@ class FeedService:
         if len(clean) <= max_len:
             return clean
         return f"{clean[:max_len].rstrip()}..."
+
+    def _prefer_zh_ui(self, ui_language: str | None) -> bool:
+        normalized = (ui_language or "").strip().lower()
+        return normalized.startswith("zh")
+
+    def _pick_display_text(self, *, prefer_zh: bool, original: str | None, zh: str | None) -> str | None:
+        primary = zh if prefer_zh else original
+        fallback = original if prefer_zh else zh
+        if primary and primary.strip():
+            return primary
+        if fallback and fallback.strip():
+            return fallback
+        return None
+
+    def _combine_for_search(self, first: str | None, second: str | None) -> str:
+        chunks = [part.strip() for part in (first, second) if part and part.strip()]
+        return " ".join(chunks)
 
     def _match_keyword(
         self,

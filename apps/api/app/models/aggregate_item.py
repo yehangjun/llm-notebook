@@ -31,11 +31,14 @@ class AggregateItem(Base):
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_url_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     source_domain: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
     source_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source_title_zh: Mapped[str | None] = mapped_column(String(512), nullable=True)
     tags_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     analysis_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     analysis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_text_zh: Mapped[str | None] = mapped_column(Text, nullable=True)
     key_points_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -54,4 +57,3 @@ class AggregateItem(Base):
     )
 
     source_creator = relationship("SourceCreator", back_populates="aggregate_items")
-

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class NoteSummaryPublic(BaseModel):
     id: UUID
     status: str
+    source_language: str | None
     title: str | None
     published_at: datetime | None
     summary_text: str | None

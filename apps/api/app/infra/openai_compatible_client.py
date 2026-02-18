@@ -15,6 +15,7 @@ from app.infra.network import urlopen_with_optional_proxy
 
 TRANSIENT_HTTP_STATUS = {429, 500, 502, 503, 504}
 ALLOWED_TAG_RE = re.compile(r"^[a-z0-9_-]+$")
+CJK_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
 MAX_OUTPUT_TAGS = 5
 MAX_TITLE_LENGTH = 120
 MAX_SUMMARY_LENGTH = 400
@@ -29,9 +30,12 @@ class OpenAICompatibleClientError(Exception):
 
 @dataclass(slots=True)
 class OpenAICompatibleAnalysisResult:
+    source_language: str
     title: str | None
+    title_zh: str | None
     published_at: datetime | None
     summary: str
+    summary_zh: str | None
     tags: list[str]
     model_name: str | None
     input_tokens: int | None
@@ -74,7 +78,10 @@ class OpenAICompatibleClient:
     ) -> dict[str, Any]:
         system_prompt = (
             "你是 Prism 的内容分析助手。"
-            "请严格返回 JSON 对象，字段必须是 title, published_at, summary, tags。"
+            "请严格返回 JSON 对象，字段必须是 source_language, title, published_at, summary, tags。"
+            "如果 source_language=non-zh，必须同时返回 title_zh 和 summary_zh。"
+            "如果 source_language=zh，title_zh 和 summary_zh 可选。"
+            "source_language 只能是 zh 或 non-zh。"
             "published_at 可为空，格式优先使用 ISO8601。"
             "tags 必须是 1 到 5 个英文小写标签，仅允许 a-z 0-9 _ -。"
             "不要输出 JSON 之外的任何文字。"
@@ -90,9 +97,12 @@ class OpenAICompatibleClient:
             "prompt_version": settings.llm_prompt_version,
             "content": content,
             "output_schema": {
+                "source_language": "string, required, enum: zh | non-zh",
                 "title": "string, optional, <=120 chars",
+                "title_zh": "string, optional when zh, required when non-zh, <=120 chars",
                 "published_at": "string, optional, datetime",
                 "summary": "string, required, <=400 chars",
+                "summary_zh": "string, optional when zh, required when non-zh, <=400 chars",
                 "tags": "string[], required, 1~5, lowercase english tags only",
             },
         }
@@ -156,7 +166,16 @@ class OpenAICompatibleClient:
         text_content = self._extract_text_content(content)
         output = self._parse_json_content(text_content)
 
+        source_language = self._normalize_language(
+            output.get("source_language") or output.get("language"),
+            fallback_text=f"{output.get('title') or ''}\n{output.get('summary') or ''}",
+        )
         title = self._normalize_title(output.get("title"))
+        title_zh = self._normalize_title(
+            output.get("title_zh")
+            or output.get("titleZh")
+            or output.get("translated_title")
+        )
         published_at = parse_datetime(
             self._normalize_optional_string(
                 output.get("published_at")
@@ -165,11 +184,21 @@ class OpenAICompatibleClient:
             )
         )
         summary = self._normalize_summary(output.get("summary"))
+        summary_zh = self._normalize_summary_optional(
+            output.get("summary_zh")
+            or output.get("summaryZh")
+            or output.get("translated_summary")
+        )
         tags = self._normalize_tags(output.get("tags"))
         if not summary:
             raise OpenAICompatibleClientError(code="invalid_output", message="模型输出缺少有效摘要")
+        if source_language == "non-zh" and not summary_zh:
+            raise OpenAICompatibleClientError(code="invalid_output", message="非中文内容缺少中文摘要")
         if not tags:
             raise OpenAICompatibleClientError(code="invalid_output", message="模型输出缺少有效标签")
+        if source_language == "zh":
+            summary_zh = summary_zh or summary
+            title_zh = title_zh or title
 
         usage = response_data.get("usage", {})
         input_tokens = self._safe_int(usage.get("prompt_tokens"))
@@ -179,9 +208,12 @@ class OpenAICompatibleClient:
             model_name = settings.llm_model_name
 
         return OpenAICompatibleAnalysisResult(
+            source_language=source_language,
             title=title,
+            title_zh=title_zh,
             published_at=published_at,
             summary=summary,
+            summary_zh=summary_zh,
             tags=tags,
             model_name=model_name,
             input_tokens=input_tokens,
@@ -247,11 +279,34 @@ class OpenAICompatibleClient:
             return ""
         return raw.strip()[:MAX_SUMMARY_LENGTH]
 
+    def _normalize_summary_optional(self, raw: Any) -> str | None:
+        if not isinstance(raw, str):
+            return None
+        normalized = raw.strip()[:MAX_SUMMARY_LENGTH]
+        return normalized or None
+
     def _normalize_optional_string(self, raw: Any) -> str | None:
         if not isinstance(raw, str):
             return None
         normalized = raw.strip()
         return normalized or None
+
+    def _normalize_language(self, raw: Any, *, fallback_text: str) -> str:
+        if isinstance(raw, str):
+            value = raw.strip().lower()
+            if value in {"zh", "zh-cn", "zh-hans", "chinese", "cn"}:
+                return "zh"
+            if value in {"non-zh", "en", "en-us", "english", "other"}:
+                return "non-zh"
+        return self._detect_source_language(fallback_text)
+
+    def _detect_source_language(self, text: str) -> str:
+        if not text:
+            return "non-zh"
+        cjk_count = len(CJK_RE.findall(text))
+        if cjk_count >= 8:
+            return "zh"
+        return "non-zh"
 
     def _normalize_tags(self, raw: Any) -> list[str]:
         if not isinstance(raw, list):

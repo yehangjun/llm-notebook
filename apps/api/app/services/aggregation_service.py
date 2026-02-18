@@ -55,9 +55,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class AggregateAnalysisResult:
+    source_language: str
     title: str | None
+    title_zh: str | None
     published_at: datetime | None
     summary_text: str
+    summary_text_zh: str | None
     tags: list[str]
     model_provider: str | None
     model_name: str | None
@@ -319,11 +322,14 @@ class AggregationService:
             source_url=source_url_raw,
             source_url_normalized=source_url_normalized,
             source_domain=source_domain,
+            source_language=None,
             source_title=(source_title or "")[:512] or None,
+            source_title_zh=None,
             tags_json=[source.slug],
             analysis_status="pending",
             analysis_error=None,
             summary_text=None,
+            summary_text_zh=None,
             key_points_json=[],
             model_provider=self._analysis_model_provider(),
             model_name=self._analysis_model_name(),
@@ -352,28 +358,22 @@ class AggregationService:
             if not content:
                 raise ValueError("来源内容为空，无法分析")
 
-            if self._should_use_model_analysis():
-                result = self._analyze_with_model(
-                    source_url=item.source_url,
-                    source_domain=item.source_domain,
-                    source_title=title,
-                    source_slug=source.slug,
-                    content=content,
-                    inferred_published_at=inferred_published_at,
-                )
-            else:
-                result = self._analyze_local(
-                    source_domain=item.source_domain,
-                    source_slug=source.slug,
-                    source_title=title,
-                    content=content,
-                    inferred_published_at=inferred_published_at,
-                )
+            result = self._analyze_with_model(
+                source_url=item.source_url,
+                source_domain=item.source_domain,
+                source_title=title,
+                source_slug=source.slug,
+                content=content,
+                inferred_published_at=inferred_published_at,
+            )
 
             item.source_title = (result.title or item.source_title or "")[:512] or None
+            item.source_title_zh = (result.title_zh or "")[:512] or None
+            item.source_language = result.source_language
             if item.published_at is None and result.published_at is not None:
                 item.published_at = result.published_at
             item.summary_text = result.summary_text
+            item.summary_text_zh = result.summary_text_zh
             item.tags_json = result.tags
             item.key_points_json = self._extract_key_points(content=content, summary_text=result.summary_text)
             item.analysis_status = "succeeded"
@@ -430,54 +430,26 @@ class AggregationService:
         tags = self._merge_tags(result.tags, source_slug)
         if not tags:
             tags = [source_slug]
+        title = (result.title or source_title or "")[:512] or None
+        if result.source_language == "zh":
+            title_zh = (result.title_zh or title or "")[:512] or None
+            summary_text_zh = (result.summary_zh or summary_text)[:400]
+        else:
+            title_zh = (result.title_zh or "")[:512] or None
+            summary_text_zh = (result.summary_zh or "").strip()[:400] or None
 
         return AggregateAnalysisResult(
-            title=(result.title or source_title or "")[:512] or None,
+            source_language=result.source_language,
+            title=title,
+            title_zh=title_zh,
             published_at=result.published_at or inferred_published_at,
             summary_text=summary_text,
+            summary_text_zh=summary_text_zh,
             tags=tags,
             model_provider=settings.llm_provider_name,
             model_name=result.model_name or settings.llm_model_name,
             model_version=None,
         )
-
-    def _analyze_local(
-        self,
-        *,
-        source_domain: str,
-        source_slug: str,
-        source_title: str | None,
-        content: str,
-        inferred_published_at: datetime | None,
-    ) -> AggregateAnalysisResult:
-        summary_core = content[:260].strip()
-        summary_text = f"该内容来自 {source_domain}。核心信息：{summary_core}"[:400]
-        tags = self._extract_local_tags(content=content, source_domain=source_domain, source_slug=source_slug)
-        if not tags:
-            tags = [source_slug]
-
-        return AggregateAnalysisResult(
-            title=source_title,
-            published_at=inferred_published_at,
-            summary_text=summary_text,
-            tags=tags[:MAX_ANALYSIS_TAGS],
-            model_provider=settings.note_model_provider,
-            model_name=settings.note_model_name,
-            model_version=settings.note_model_version,
-        )
-
-    def _extract_local_tags(self, *, content: str, source_domain: str, source_slug: str) -> list[str]:
-        lowered = content.lower()
-        tags = self._merge_tags(
-            source_slug,
-            [
-                item
-                for item in ("ai", "llm", "agent", "rag", "prompt", "model", "openai", "anthropic", "gpt")
-                if item in lowered
-            ],
-            [part for part in re.split(r"[^a-z0-9_-]+", source_domain.lower()) if len(part) >= 2],
-        )
-        return tags[:MAX_ANALYSIS_TAGS]
 
     def _extract_key_points(self, *, content: str, summary_text: str) -> list[str]:
         key_points: list[str] = []
@@ -521,23 +493,14 @@ class AggregationService:
 
         return merged
 
-    def _should_use_model_analysis(self) -> bool:
-        return bool((settings.llm_api_key or "").strip())
-
     def _analysis_model_provider(self) -> str:
-        if self._should_use_model_analysis():
-            return settings.llm_provider_name
-        return settings.note_model_provider
+        return settings.llm_provider_name
 
     def _analysis_model_name(self) -> str:
-        if self._should_use_model_analysis():
-            return settings.llm_model_name
-        return settings.note_model_name
+        return settings.llm_model_name
 
     def _analysis_model_version(self) -> str | None:
-        if self._should_use_model_analysis():
-            return None
-        return settings.note_model_version
+        return None
 
     def _fetch_feed_xml(self, feed_url: str) -> str:
         request = urllib.request.Request(

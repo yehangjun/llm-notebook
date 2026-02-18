@@ -59,9 +59,12 @@ class AnalysisError(Exception):
 
 @dataclass(slots=True)
 class SourceAnalysis:
+    source_language: str
     title: str | None
+    title_zh: str | None
     published_at: datetime | None
     summary_text: str
+    summary_text_zh: str | None
     tags: list[str]
     model_provider: str | None
     model_name: str | None
@@ -103,7 +106,7 @@ class NoteService:
         )
         if existing:
             return CreateNoteResponse(
-                note=self._build_note_detail(existing),
+                note=self._build_note_detail(existing, ui_language=user.ui_language),
                 created=False,
                 message="该链接已存在，已返回已有笔记",
             )
@@ -123,7 +126,7 @@ class NoteService:
         self.note_repo.save(note)
         self.db.commit()
         self.db.refresh(note)
-        return CreateNoteResponse(note=self._build_note_detail(note), created=True)
+        return CreateNoteResponse(note=self._build_note_detail(note, ui_language=user.ui_language), created=True)
 
     def list_notes(
         self,
@@ -148,14 +151,20 @@ class NoteService:
         note_items: list[NoteListItem] = []
         for note in notes:
             latest_summary = self.note_repo.get_latest_summary(note.id)
-            note_items.append(self._build_note_list_item(note=note, latest_summary=latest_summary))
+            note_items.append(
+                self._build_note_list_item(
+                    note=note,
+                    latest_summary=latest_summary,
+                    ui_language=user.ui_language,
+                )
+            )
         return NoteListResponse(notes=note_items)
 
     def get_note_detail(self, *, user: User, note_id: UUID) -> NoteDetail:
         note = self.note_repo.get_by_id_for_user(note_id=note_id, user_id=user.id)
         if not note:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="笔记不存在")
-        return self._build_note_detail(note)
+        return self._build_note_detail(note, ui_language=user.ui_language)
 
     def update_note(self, *, user: User, note_id: UUID, payload: UpdateNoteRequest) -> NoteDetail:
         note = self.note_repo.get_by_id_for_user(note_id=note_id, user_id=user.id)
@@ -179,7 +188,7 @@ class NoteService:
         self.note_repo.save(note)
         self.db.commit()
         self.db.refresh(note)
-        return self._build_note_detail(note)
+        return self._build_note_detail(note, ui_language=user.ui_language)
 
     def reanalyze(self, *, user: User, note_id: UUID) -> NoteDetail:
         self._enforce_reanalyze_limit(user.id)
@@ -194,7 +203,7 @@ class NoteService:
             self.db.commit()
             self.db.refresh(note)
 
-        return self._build_note_detail(note)
+        return self._build_note_detail(note, ui_language=user.ui_language)
 
     def run_analysis_job(self, *, note_id: UUID) -> None:
         note = self.note_repo.get_by_id(note_id)
@@ -235,9 +244,12 @@ class NoteService:
         self.note_repo.create_summary(
             note_id=note.id,
             status="succeeded",
+            source_language=result.source_language,
             output_title=result.title,
+            output_title_zh=result.title_zh,
             published_at=result.published_at,
             output_summary=result.summary_text,
+            output_summary_zh=result.summary_text_zh,
             output_tags=result.tags,
             summary_text=result.summary_text,
             key_points=result.tags,
@@ -267,9 +279,12 @@ class NoteService:
         self.note_repo.create_summary(
             note_id=note.id,
             status="failed",
+            source_language=None,
             output_title=None,
+            output_title_zh=None,
             published_at=None,
             output_summary=None,
+            output_summary_zh=None,
             output_tags=None,
             summary_text=None,
             key_points=None,
@@ -295,7 +310,7 @@ class NoteService:
         self.db.commit()
         return GenericMessageResponse(message="笔记已删除")
 
-    def get_public_note_detail(self, *, note_id: UUID) -> PublicNoteDetail:
+    def get_public_note_detail(self, *, note_id: UUID, ui_language: str | None = None) -> PublicNoteDetail:
         note = self.note_repo.get_public_by_id(note_id)
         if not note:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="笔记不存在")
@@ -311,15 +326,26 @@ class NoteService:
             analysis_status=note.analysis_status,
             created_at=note.created_at,
             updated_at=note.updated_at,
-            latest_summary=self._build_summary_public(latest_summary),
+            latest_summary=self._build_summary_public(latest_summary, ui_language=ui_language),
         )
 
-    def _build_note_list_item(self, *, note: Note, latest_summary: NoteAISummary | None) -> NoteListItem:
+    def _build_note_list_item(
+        self,
+        *,
+        note: Note,
+        latest_summary: NoteAISummary | None,
+        ui_language: str | None = None,
+    ) -> NoteListItem:
+        prefer_zh = self._prefer_zh_ui(ui_language)
+        title_original = (latest_summary.output_title if latest_summary else None) or note.source_title
+        title_zh = latest_summary.output_title_zh if latest_summary else None
+        if latest_summary and latest_summary.source_language == "zh":
+            title_zh = title_zh or title_original
         return NoteListItem(
             id=note.id,
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
-            source_title=note.source_title,
+            source_title=self._pick_display_text(prefer_zh=prefer_zh, original=title_original, zh=title_zh),
             published_at=latest_summary.published_at if latest_summary else None,
             tags=note.tags_json or [],
             visibility=note.visibility,
@@ -327,7 +353,7 @@ class NoteService:
             updated_at=note.updated_at,
         )
 
-    def _build_note_detail(self, note: Note) -> NoteDetail:
+    def _build_note_detail(self, note: Note, *, ui_language: str | None = None) -> NoteDetail:
         latest_summary = self.note_repo.get_latest_summary(note.id)
         return NoteDetail(
             id=note.id,
@@ -341,22 +367,36 @@ class NoteService:
             analysis_error=note.analysis_error,
             created_at=note.created_at,
             updated_at=note.updated_at,
-            latest_summary=self._build_summary_public(latest_summary),
+            latest_summary=self._build_summary_public(latest_summary, ui_language=ui_language),
         )
 
-    def _build_summary_public(self, summary: NoteAISummary | None) -> NoteSummaryPublic | None:
+    def _build_summary_public(
+        self,
+        summary: NoteAISummary | None,
+        *,
+        ui_language: str | None = None,
+    ) -> NoteSummaryPublic | None:
         if not summary:
             return None
 
+        prefer_zh = self._prefer_zh_ui(ui_language)
+        original_title = summary.output_title
+        translated_title = summary.output_title_zh
         merged_summary = summary.output_summary or summary.summary_text
+        translated_summary = summary.output_summary_zh
+        if summary.source_language == "zh":
+            translated_title = translated_title or original_title
+            translated_summary = translated_summary or merged_summary
+
         merged_tags = summary.output_tags_json or summary.key_points_json or []
 
         return NoteSummaryPublic(
             id=summary.id,
             status=summary.status,
-            title=summary.output_title,
+            source_language=summary.source_language,
+            title=self._pick_display_text(prefer_zh=prefer_zh, original=original_title, zh=translated_title),
             published_at=summary.published_at,
-            summary_text=merged_summary,
+            summary_text=self._pick_display_text(prefer_zh=prefer_zh, original=merged_summary, zh=translated_summary),
             tags=merged_tags,
             model_provider=summary.model_provider,
             model_name=summary.model_name,
@@ -371,24 +411,16 @@ class NoteService:
         if not content:
             raise AnalysisError(code="empty_content", message="来源内容为空，无法分析")
 
-        if (settings.llm_api_key or "").strip():
-            return self._analyze_source_with_llm(
-                source_url=note.source_url,
-                source_domain=note.source_domain,
-                source_title=source_title,
-                content=content,
-                inferred_published_at=inferred_published_at,
-            )
+        if not (settings.llm_api_key or "").strip():
+            raise AnalysisError(code="llm_not_configured", message="模型 API Key 未配置，无法执行内容分析")
 
-        if settings.llm_allow_local_fallback:
-            return self._analyze_source_local(
-                source_domain=note.source_domain,
-                source_title=source_title,
-                content=content,
-                inferred_published_at=inferred_published_at,
-            )
-
-        raise AnalysisError(code="llm_not_configured", message="模型 API Key 未配置，无法执行内容分析")
+        return self._analyze_source_with_llm(
+            source_url=note.source_url,
+            source_domain=note.source_domain,
+            source_title=source_title,
+            content=content,
+            inferred_published_at=inferred_published_at,
+        )
 
     def _analyze_source_with_llm(
         self,
@@ -429,35 +461,6 @@ class NoteService:
             model_version=None,
         )
 
-    def _analyze_source_local(
-        self,
-        *,
-        source_domain: str,
-        source_title: str | None,
-        content: str,
-        inferred_published_at: datetime | None,
-    ) -> SourceAnalysis:
-        summary_core = content[:260].strip()
-        summary_text = f"该内容来自 {source_domain}。核心信息：{summary_core}"[:400]
-
-        tags = self._extract_local_tags(content, source_domain)
-        if not tags:
-            tags = ["ai"]
-
-        return SourceAnalysis(
-            title=source_title,
-            published_at=inferred_published_at,
-            summary_text=summary_text,
-            tags=tags[:MAX_ANALYSIS_TAGS],
-            model_provider="local-fallback",
-            model_name=settings.note_model_name,
-            model_version=settings.note_model_version,
-            prompt_version=settings.llm_prompt_version,
-            input_tokens=None,
-            output_tokens=None,
-            raw_response_json=None,
-        )
-
     def _build_source_analysis(
         self,
         *,
@@ -476,9 +479,20 @@ class NoteService:
             raise AnalysisError(code="invalid_output", message="模型未返回有效摘要")
 
         return SourceAnalysis(
+            source_language=result.source_language,
             title=(result.title or fallback_title or "")[:512] or None,
+            title_zh=(
+                (result.title_zh or result.title or fallback_title or "")[:512] or None
+                if result.source_language == "zh"
+                else ((result.title_zh or "")[:512] or None)
+            ),
             published_at=result.published_at or fallback_published_at,
             summary_text=summary_text,
+            summary_text_zh=(
+                (result.summary_zh or summary_text)[:400]
+                if result.source_language == "zh"
+                else ((result.summary_zh or "").strip()[:400] or None)
+            ),
             tags=tags,
             model_provider=model_provider,
             model_name=result.model_name,
@@ -489,44 +503,27 @@ class NoteService:
             raw_response_json=result.raw_response,
         )
 
-    def _extract_local_tags(self, content: str, source_domain: str) -> list[str]:
-        lowered = content.lower()
-        candidates: list[str] = []
-        seen: set[str] = set()
-
-        for item in ("ai", "llm", "agent", "rag", "prompt", "model", "openai", "anthropic", "gpt"):
-            if item in lowered and item not in seen:
-                seen.add(item)
-                candidates.append(item)
-
-        for part in re.split(r"[^a-z0-9_-]+", source_domain.lower()):
-            if len(part) < 2:
-                continue
-            if part in {"www", "com", "cn", "org", "net"}:
-                continue
-            if part in seen:
-                continue
-            seen.add(part)
-            candidates.append(part)
-            if len(candidates) >= MAX_ANALYSIS_TAGS:
-                break
-
-        return candidates[:MAX_ANALYSIS_TAGS]
-
     def _analysis_model_provider(self) -> str:
-        if (settings.llm_api_key or "").strip():
-            return settings.llm_provider_name
-        return "local-fallback"
+        return settings.llm_provider_name
 
     def _analysis_model_name(self) -> str:
-        if (settings.llm_api_key or "").strip():
-            return settings.llm_model_name
-        return settings.note_model_name
+        return settings.llm_model_name
 
     def _analysis_model_version(self) -> str | None:
-        if (settings.llm_api_key or "").strip():
-            return None
-        return settings.note_model_version
+        return None
+
+    def _prefer_zh_ui(self, ui_language: str | None) -> bool:
+        normalized = (ui_language or "").strip().lower()
+        return normalized.startswith("zh")
+
+    def _pick_display_text(self, *, prefer_zh: bool, original: str | None, zh: str | None) -> str | None:
+        primary = zh if prefer_zh else original
+        fallback = original if prefer_zh else zh
+        if primary and primary.strip():
+            return primary
+        if fallback and fallback.strip():
+            return fallback
+        return None
 
     def _fetch_source_content(self, source_url: str) -> tuple[str | None, str, datetime | None]:
         try:
