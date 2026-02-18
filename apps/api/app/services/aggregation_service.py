@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 import ipaddress
 import json
 import logging
@@ -24,6 +23,7 @@ from app.db.session import SessionLocal
 from app.infra.network import urlopen_with_optional_proxy
 from app.infra.openai_compatible_client import OpenAICompatibleClient, OpenAICompatibleClientError
 from app.infra.redis_client import get_redis
+from app.infra.source_fetcher import fetch_source_for_analysis
 from app.models.aggregate_item import AggregateItem
 from app.models.source_creator import SourceCreator
 from app.schemas.feed import RefreshAggregatesResponse
@@ -522,8 +522,6 @@ class AggregationService:
         return merged
 
     def _should_use_model_analysis(self) -> bool:
-        if not settings.aggregation_use_model_analysis:
-            return False
         return bool((settings.llm_api_key or "").strip())
 
     def _analysis_model_provider(self) -> str:
@@ -629,8 +627,8 @@ class AggregationService:
         return entries
 
     def _fetch_source_document(self, source_url: str) -> tuple[str | None, str, str, datetime | None]:
-        request = urllib.request.Request(
-            source_url,
+        fetched = fetch_source_for_analysis(
+            source_url=source_url,
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -640,24 +638,11 @@ class AggregationService:
                 "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
             },
         )
-        with urlopen_with_optional_proxy(request, timeout=settings.note_fetch_timeout_seconds) as response:
-            raw = response.read(settings.note_fetch_max_bytes)
-            encoding = response.headers.get_content_charset() or "utf-8"
-            resolved_url = response.geturl()
-
-        document = raw.decode(encoding, errors="ignore")
-        title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", document)
-        title = html.unescape(title_match.group(1).strip()) if title_match else None
-
-        cleaned = re.sub(r"(?is)<(script|style|noscript).*?>.*?</\\1>", " ", document)
-        plain = re.sub(r"(?is)<[^>]+>", " ", cleaned)
-        plain = html.unescape(plain)
-        plain = re.sub(r"\s+", " ", plain).strip()
-        if len(plain) > settings.note_body_max_chars:
-            plain = plain[: settings.note_body_max_chars]
-
-        published_at = infer_published_at(source_url=resolved_url or source_url, document=document)
-        return title, plain, resolved_url, published_at
+        published_at = fetched.published_at_hint or infer_published_at(
+            source_url=fetched.resolved_source_url or source_url,
+            document=fetched.document,
+        )
+        return fetched.title, fetched.content, fetched.resolved_source_url, published_at
 
     def _normalize_source_url(self, raw_url: str) -> tuple[str, str, str]:
         source_url = raw_url.strip()

@@ -96,8 +96,10 @@ alembic revision -m "your migration name"
   - `LLM_PROMPT_VERSION`
   - `LLM_ALLOW_LOCAL_FALLBACK`
   - `NETWORK_PROXY_URL`（全局网络代理，影响链接抓取与大模型调用）
+  - `CONTENT_FETCH_USE_JINA_READER`（全局抓取策略开关，`true` 使用 Jina Reader，`false` 直连来源链接）
+  - `JINA_READER_BASE_URL`（Jina Reader 前缀地址，默认 `https://r.jina.ai/`）
+  - `JINA_READER_TOKEN`（可选，配置后以 `Authorization: Bearer <token>` 方式访问 Jina Reader；为空则匿名访问）
 - 信息聚合相关环境变量：
   - `AGGREGATION_MAX_ITEMS_PER_SOURCE`（每个信息源每次刷新最多处理的候选链接数）
-  - `AGGREGATION_USE_MODEL_ANALYSIS`（是否启用大模型分析，默认 `false`）
   - `AGGREGATION_REFRESH_JOB_TTL_SECONDS`（聚合刷新任务状态在 Redis 的保留时长，单位秒）
 - 历史 `MIMO_*` 变量仍可作为兼容别名读取，建议迁移到 `LLM_*`。

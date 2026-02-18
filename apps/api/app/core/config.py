@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     note_body_max_chars: int = Field(default=20000, validation_alias="NOTE_BODY_MAX_CHARS")
     note_fetch_timeout_seconds: int = Field(default=8, validation_alias="NOTE_FETCH_TIMEOUT_SECONDS")
     note_fetch_max_bytes: int = Field(default=500000, validation_alias="NOTE_FETCH_MAX_BYTES")
+    content_fetch_use_jina_reader: bool = Field(default=False, validation_alias="CONTENT_FETCH_USE_JINA_READER")
+    jina_reader_base_url: str = Field(default="https://r.jina.ai/", validation_alias="JINA_READER_BASE_URL")
+    jina_reader_token: str | None = Field(default=None, validation_alias="JINA_READER_TOKEN")
     note_model_provider: str = Field(default="prism", validation_alias="NOTE_MODEL_PROVIDER")
     note_model_name: str = Field(default="summary-lite", validation_alias="NOTE_MODEL_NAME")
     note_model_version: str = Field(default="v1", validation_alias="NOTE_MODEL_VERSION")
@@ -89,7 +92,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("NETWORK_PROXY_URL", "GLOBAL_PROXY_URL"),
     )
     aggregation_max_items_per_source: int = Field(default=5, validation_alias="AGGREGATION_MAX_ITEMS_PER_SOURCE")
-    aggregation_use_model_analysis: bool = Field(default=False, validation_alias="AGGREGATION_USE_MODEL_ANALYSIS")
     aggregation_refresh_job_ttl_seconds: int = Field(
         default=86400,
         validation_alias="AGGREGATION_REFRESH_JOB_TTL_SECONDS",

@@ -1,9 +1,7 @@
-import html
 import ipaddress
 import logging
 import re
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -21,8 +19,8 @@ from app.infra.openai_compatible_client import (
     OpenAICompatibleClient,
     OpenAICompatibleClientError,
 )
-from app.infra.network import urlopen_with_optional_proxy
 from app.infra.redis_client import get_redis
+from app.infra.source_fetcher import fetch_source_for_analysis
 from app.models.note import Note
 from app.models.note_ai_summary import NoteAISummary
 from app.models.user import User
@@ -531,35 +529,33 @@ class NoteService:
         return settings.note_model_version
 
     def _fetch_source_content(self, source_url: str) -> tuple[str | None, str, datetime | None]:
-        request = urllib.request.Request(
-            source_url,
-            headers={
-                "User-Agent": "PrismNotebookBot/1.0",
-                "Accept": "text/html,application/xhtml+xml",
-            },
-        )
-
         try:
-            with urlopen_with_optional_proxy(request, timeout=settings.note_fetch_timeout_seconds) as response:
-                raw = response.read(settings.note_fetch_max_bytes)
-                encoding = response.headers.get_content_charset() or "utf-8"
-                resolved_url = response.geturl()
+            fetched = fetch_source_for_analysis(
+                source_url=source_url,
+                headers={
+                    "User-Agent": "PrismNotebookBot/1.0",
+                    "Accept": "text/html,application/xhtml+xml",
+                },
+            )
         except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "note source fetch failed",
+                extra={
+                    "source_url": source_url,
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "proxy_enabled": bool((settings.network_proxy_url or "").strip()),
+                    "fetch_strategy": "jina-reader" if settings.content_fetch_use_jina_reader else "direct",
+                },
+                exc_info=True,
+            )
             raise AnalysisError(code="source_unreachable", message="来源链接暂不可访问，请稍后重试") from exc
 
-        text = raw.decode(encoding, errors="ignore")
-        title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
-        title = html.unescape(title_match.group(1).strip()) if title_match else None
-
-        cleaned = re.sub(r"(?is)<(script|style|noscript).*?>.*?</\\1>", " ", text)
-        plain = re.sub(r"(?is)<[^>]+>", " ", cleaned)
-        plain = html.unescape(plain)
-        plain = re.sub(r"\s+", " ", plain).strip()
-
-        if len(plain) > settings.note_body_max_chars:
-            plain = plain[: settings.note_body_max_chars]
-        published_at = infer_published_at(source_url=resolved_url or source_url, document=text)
-        return title, plain, published_at
+        published_at = fetched.published_at_hint or infer_published_at(
+            source_url=fetched.resolved_source_url or source_url,
+            document=fetched.document,
+        )
+        return fetched.title, fetched.content, published_at
 
     def _normalize_source_url(self, raw_url: str) -> tuple[str, str, str]:
         source_url = raw_url.strip()
