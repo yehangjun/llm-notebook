@@ -518,7 +518,6 @@ Redis Key：
 - 路径：`POST /v1/chat/completions`
 - 鉴权：`Authorization: Bearer <LLM_API_KEY>`
 - 输出：强制 JSON 结构，便于服务端做 Schema 校验
-- 兼容：历史 `MIMO_*` 变量可继续作为别名读取，建议逐步迁移到 `LLM_*`
 
 ### 13.7 API 与页面约定
 接口层：

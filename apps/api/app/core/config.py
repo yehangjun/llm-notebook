@@ -61,27 +61,27 @@ class Settings(BaseSettings):
     llm_provider_name: str = Field(default="openai-compatible", validation_alias="LLM_PROVIDER_NAME")
     llm_base_url: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("LLM_BASE_URL", "MIMO_BASE_URL"),
+        validation_alias="LLM_BASE_URL",
     )
     llm_api_key: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("LLM_API_KEY", "MIMO_API_KEY"),
+        validation_alias="LLM_API_KEY",
     )
     llm_model_name: str = Field(
         default="gpt-4o-mini",
-        validation_alias=AliasChoices("LLM_MODEL_NAME", "MIMO_MODEL_NAME"),
+        validation_alias="LLM_MODEL_NAME",
     )
     llm_timeout_seconds: int = Field(
         default=30,
-        validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "MIMO_TIMEOUT_SECONDS"),
+        validation_alias="LLM_TIMEOUT_SECONDS",
     )
     llm_max_retries: int = Field(
         default=3,
-        validation_alias=AliasChoices("LLM_MAX_RETRIES", "MIMO_MAX_RETRIES"),
+        validation_alias="LLM_MAX_RETRIES",
     )
     llm_prompt_version: str = Field(
         default="v1",
-        validation_alias=AliasChoices("LLM_PROMPT_VERSION", "MIMO_PROMPT_VERSION"),
+        validation_alias="LLM_PROMPT_VERSION",
     )
     network_proxy_url: str | None = Field(
         default=None,

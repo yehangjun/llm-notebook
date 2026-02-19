@@ -101,4 +101,3 @@ alembic revision -m "your migration name"
 - 信息聚合相关环境变量：
   - `AGGREGATION_MAX_ITEMS_PER_SOURCE`（每个信息源每次刷新最多处理的候选链接数）
   - `AGGREGATION_REFRESH_JOB_TTL_SECONDS`（聚合刷新任务状态在 Redis 的保留时长，单位秒）
-- 历史 `MIMO_*` 变量仍可作为兼容别名读取，建议迁移到 `LLM_*`。
