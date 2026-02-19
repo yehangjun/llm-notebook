@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import AnalysisStatusBadge from "../../components/AnalysisStatusBadge";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -202,7 +203,7 @@ export default function NotesPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge>{note.bookmark_count} 收藏</Badge>
                         <Badge>{note.like_count} 点赞</Badge>
-                        <Badge className={statusClassName(note.analysis_status)}>{renderStatus(note.analysis_status)}</Badge>
+                        <AnalysisStatusBadge status={note.analysis_status} />
                         <Badge variant="secondary">{note.visibility === "public" ? "公开" : "私有"}</Badge>
                         <Button variant="secondary" size="sm" type="button" onClick={() => router.push(`/notes/${note.id}`)}>
                           查看
@@ -268,18 +269,4 @@ export default function NotesPage() {
       </div>
     </main>
   );
-}
-
-function renderStatus(status: NoteListItem["analysis_status"]): string {
-  if (status === "pending") return "待分析";
-  if (status === "running") return "分析中";
-  if (status === "succeeded") return "成功";
-  return "失败";
-}
-
-function statusClassName(status: NoteListItem["analysis_status"]): string {
-  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (status === "running") return "border-blue-200 bg-blue-50 text-blue-700";
-  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  return "border-red-200 bg-red-50 text-red-700";
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import AnalysisStatusBadge from "../../../../components/AnalysisStatusBadge";
 import { Badge } from "../../../../components/ui/badge";
 import { Button } from "../../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
@@ -105,7 +106,7 @@ export default function PublicNotePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">状态：</span>
-                  <Badge className={statusClassName(note.analysis_status)}>{renderStatus(note.analysis_status)}</Badge>
+                  <AnalysisStatusBadge status={note.analysis_status} />
                 </div>
                 {!!note.tags.length && (
                   <div className="flex flex-wrap gap-1.5">
@@ -182,18 +183,4 @@ function resolveUiLanguage(): string {
     return navigator.language;
   }
   return "zh-CN";
-}
-
-function renderStatus(status: PublicNoteDetail["analysis_status"]): string {
-  if (status === "pending") return "待分析";
-  if (status === "running") return "分析中";
-  if (status === "succeeded") return "成功";
-  return "失败";
-}
-
-function statusClassName(status: PublicNoteDetail["analysis_status"]): string {
-  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (status === "running") return "border-blue-200 bg-blue-50 text-blue-700";
-  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  return "border-red-200 bg-red-50 text-red-700";
 }
