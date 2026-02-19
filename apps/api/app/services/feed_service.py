@@ -8,8 +8,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.tag_utils import normalize_hashtag, pick_localized_tags
 from app.models.aggregate_item import AggregateItem
 from app.models.note import Note
+from app.models.note_ai_summary import NoteAISummary
 from app.models.source_creator import SourceCreator
 from app.models.user import User
 from app.models.user_bookmark import UserBookmark
@@ -22,6 +24,7 @@ FEED_SCOPE_ALL = "all"
 FEED_SCOPE_FOLLOWING = "following"
 FEED_SCOPE_UNFOLLOWED = "unfollowed"
 ALLOWED_FEED_SCOPES = {FEED_SCOPE_ALL, FEED_SCOPE_FOLLOWING, FEED_SCOPE_UNFOLLOWED}
+MAX_DISPLAY_TAGS = 5
 
 
 @dataclass
@@ -53,6 +56,7 @@ class FeedService:
 
         followed_user_ids, followed_source_ids = self._load_following_sets(user.id)
         prefer_zh = self._prefer_zh_ui(user.ui_language)
+        note_summary_cache: dict[UUID, NoteAISummary | None] = {}
 
         fetch_limit = max(limit + offset + 120, 240)
         notes = self._load_public_notes(fetch_limit=fetch_limit)
@@ -62,8 +66,19 @@ class FeedService:
         for note in notes:
             if note.user_id == user.id:
                 continue
-            if tag_value and tag_value not in (note.tags_json or []):
-                continue
+            latest_summary: NoteAISummary | None = None
+            if tag_value:
+                latest_summary = note_summary_cache.get(note.id)
+                if note.id not in note_summary_cache:
+                    latest_summary = self.note_repo.get_latest_summary(note.id)
+                    note_summary_cache[note.id] = latest_summary
+                if not self._matches_note_tag(
+                    note=note,
+                    latest_summary=latest_summary,
+                    tag=tag_value,
+                    prefer_zh=prefer_zh,
+                ):
+                    continue
             creator_name = self._creator_name_for_note(note)
             if keyword_value and not self._match_keyword(
                 keyword=keyword_value,
@@ -83,7 +98,11 @@ class FeedService:
             mixed.append(("note", note))
 
         for aggregate in aggregates:
-            if tag_value and tag_value not in (aggregate.tags_json or []):
+            if tag_value and not self._matches_aggregate_tag(
+                aggregate=aggregate,
+                tag=tag_value,
+                prefer_zh=prefer_zh,
+            ):
                 continue
             creator_name = aggregate.source_creator.display_name if aggregate.source_creator else None
             if keyword_value and not self._match_keyword(
@@ -112,6 +131,7 @@ class FeedService:
                 followed_user_ids=followed_user_ids,
                 followed_source_ids=followed_source_ids,
                 prefer_zh=prefer_zh,
+                note_summary_cache=note_summary_cache,
             )
         )
 
@@ -205,14 +225,25 @@ class FeedService:
             if not note:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="内容不存在")
 
+            latest_summary = self.note_repo.get_latest_summary(note.id)
             item = self._build_items_for_records(
                 user=user,
                 records=[("note", note)],
                 followed_user_ids=followed_user_ids,
                 followed_source_ids=followed_source_ids,
                 prefer_zh=prefer_zh,
+                note_summary_cache={note.id: latest_summary},
             )[0]
-            latest_summary = self.note_repo.get_latest_summary(note.id)
+            summary_tags = (
+                pick_localized_tags(
+                    prefer_zh=prefer_zh,
+                    source_language=latest_summary.source_language,
+                    original_tags=(latest_summary.output_tags_json or latest_summary.key_points_json or []),
+                    zh_tags=latest_summary.output_tags_zh_json,
+                )
+                if latest_summary
+                else []
+            )
             if latest_summary and latest_summary.source_language == "zh":
                 summary_zh = (
                     latest_summary.output_summary_zh
@@ -228,11 +259,7 @@ class FeedService:
                     original=(latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None,
                     zh=summary_zh,
                 ),
-                key_points=(
-                    (latest_summary.output_tags_json or latest_summary.key_points_json or [])
-                    if latest_summary
-                    else []
-                ),
+                key_points=summary_tags or (latest_summary.key_points_json if latest_summary else []) or [],
                 note_body_md=note.note_body_md,
                 analysis_error=(latest_summary.error_message if latest_summary else None) or note.analysis_error,
                 model_provider=latest_summary.model_provider if latest_summary else None,
@@ -289,6 +316,7 @@ class FeedService:
         followed_user_ids: set[UUID],
         followed_source_ids: set[UUID],
         prefer_zh: bool,
+        note_summary_cache: dict[UUID, NoteAISummary | None] | None = None,
     ) -> list[FeedItem]:
         if not records:
             return []
@@ -303,7 +331,13 @@ class FeedService:
         for kind, raw in records:
             if kind == "note":
                 note = raw  # type: ignore[assignment]
-                latest_summary = self.note_repo.get_latest_summary(note.id)
+                latest_summary = (
+                    note_summary_cache.get(note.id)
+                    if note_summary_cache and note.id in note_summary_cache
+                    else self.note_repo.get_latest_summary(note.id)
+                )
+                if note_summary_cache is not None and note.id not in note_summary_cache:
+                    note_summary_cache[note.id] = latest_summary
                 if latest_summary and latest_summary.source_language == "zh":
                     excerpt_zh = (
                         latest_summary.output_summary_zh
@@ -322,6 +356,11 @@ class FeedService:
                     original=(latest_summary.output_title if latest_summary else None) or note.source_title,
                     zh=title_zh,
                 )
+                display_tags = self._display_tags_for_note(
+                    note=note,
+                    latest_summary=latest_summary,
+                    prefer_zh=prefer_zh,
+                )
                 stats = note_stats.get(
                     note.id,
                     InteractionStats(like_count=0, bookmark_count=0, liked=False, bookmarked=False),
@@ -336,7 +375,7 @@ class FeedService:
                         source_url=note.source_url_normalized,
                         source_domain=note.source_domain,
                         source_title=display_title,
-                        tags=note.tags_json or [],
+                        tags=display_tags,
                         analysis_status=note.analysis_status,
                         summary_excerpt=self._shorten(
                             self._pick_display_text(prefer_zh=prefer_zh, original=excerpt_original, zh=excerpt_zh)
@@ -372,7 +411,12 @@ class FeedService:
                         original=aggregate.source_title,
                         zh=aggregate.source_title_zh,
                     ),
-                    tags=aggregate.tags_json or [],
+                    tags=pick_localized_tags(
+                        prefer_zh=prefer_zh,
+                        source_language=aggregate.source_language,
+                        original_tags=aggregate.tags_json,
+                        zh_tags=aggregate.tags_zh_json,
+                    ),
                     analysis_status=aggregate.analysis_status,
                     summary_excerpt=self._shorten(
                         self._pick_display_text(
@@ -535,11 +579,81 @@ class FeedService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的信息流筛选范围")
         return raw
 
+    def _normalize_tag_list(self, values: list[str] | None) -> list[str]:
+        if not values:
+            return []
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            tag = normalize_hashtag(raw)
+            if not tag or tag in seen:
+                continue
+            seen.add(tag)
+            normalized.append(tag)
+            if len(normalized) >= MAX_DISPLAY_TAGS:
+                break
+        return normalized
+
+    def _display_tags_for_note(
+        self,
+        *,
+        note: Note,
+        latest_summary: NoteAISummary | None,
+        prefer_zh: bool,
+    ) -> list[str]:
+        note_tags = self._normalize_tag_list(note.tags_json or [])
+        if not latest_summary:
+            return note_tags
+
+        summary_original_tags = self._normalize_tag_list(latest_summary.output_tags_json or latest_summary.key_points_json or [])
+        summary_translated_tags = self._normalize_tag_list(latest_summary.output_tags_zh_json)
+        summary_display_tags = pick_localized_tags(
+            prefer_zh=prefer_zh,
+            source_language=latest_summary.source_language,
+            original_tags=summary_original_tags,
+            zh_tags=summary_translated_tags,
+            max_count=MAX_DISPLAY_TAGS,
+        )
+        if not summary_display_tags:
+            return note_tags
+        if not note_tags:
+            return summary_display_tags
+        if summary_original_tags and note_tags == summary_original_tags:
+            return summary_display_tags
+        return note_tags
+
+    def _matches_note_tag(
+        self,
+        *,
+        note: Note,
+        latest_summary: NoteAISummary | None,
+        tag: str,
+        prefer_zh: bool,
+    ) -> bool:
+        return tag in self._display_tags_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh)
+
+    def _matches_aggregate_tag(self, *, aggregate: AggregateItem, tag: str, prefer_zh: bool) -> bool:
+        display_tags = pick_localized_tags(
+            prefer_zh=prefer_zh,
+            source_language=aggregate.source_language,
+            original_tags=aggregate.tags_json,
+            zh_tags=aggregate.tags_zh_json,
+            max_count=MAX_DISPLAY_TAGS,
+        )
+        if tag in display_tags:
+            return True
+        return tag in self._normalize_tag_list(aggregate.tags_json) or tag in self._normalize_tag_list(aggregate.tags_zh_json)
+
     def _normalize_tag(self, value: str | None) -> str | None:
         if value is None:
             return None
-        tag = value.strip().lower()
-        return tag or None
+        raw = value.strip()
+        if not raw:
+            return None
+        tag = normalize_hashtag(raw)
+        if not tag:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="标签筛选格式不合法")
+        return tag
 
     def _normalize_keyword(self, value: str | None) -> str | None:
         if value is None:

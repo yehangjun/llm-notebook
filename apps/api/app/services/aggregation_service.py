@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.published_at import infer_published_at, parse_datetime
 from app.core.config import settings
+from app.core.tag_utils import normalize_hashtag
 from app.db.session import SessionLocal
 from app.infra.network import urlopen_with_optional_proxy
 from app.infra.llm_client import LLMClient, LLMClientError
@@ -62,6 +63,7 @@ class AggregateAnalysisResult:
     summary_text: str
     summary_text_zh: str | None
     tags: list[str]
+    tags_zh: list[str]
     model_provider: str | None
     model_name: str | None
     model_version: str | None
@@ -326,6 +328,7 @@ class AggregationService:
             source_title=(source_title or "")[:512] or None,
             source_title_zh=None,
             tags_json=[source.slug],
+            tags_zh_json=[source.slug],
             analysis_status="pending",
             analysis_error=None,
             summary_text=None,
@@ -375,6 +378,7 @@ class AggregationService:
             item.summary_text = result.summary_text
             item.summary_text_zh = result.summary_text_zh
             item.tags_json = result.tags
+            item.tags_zh_json = result.tags_zh
             item.key_points_json = self._extract_key_points(content=content, summary_text=result.summary_text)
             item.analysis_status = "succeeded"
             item.analysis_error = None
@@ -430,6 +434,9 @@ class AggregationService:
         tags = self._merge_tags(result.tags, source_slug)
         if not tags:
             tags = [source_slug]
+        tags_zh = self._merge_tags(result.tags_zh or result.tags, source_slug)
+        if not tags_zh:
+            tags_zh = list(tags)
         title = (result.title or source_title or "")[:512] or None
         if result.source_language == "zh":
             title_zh = (result.title_zh or title or "")[:512] or None
@@ -446,6 +453,7 @@ class AggregationService:
             summary_text=summary_text,
             summary_text_zh=summary_text_zh,
             tags=tags,
+            tags_zh=tags_zh,
             model_provider=settings.llm_provider_name,
             model_name=result.model_name or settings.llm_model_name,
             model_version=None,
@@ -481,10 +489,8 @@ class AggregationService:
             for raw in values:
                 if not isinstance(raw, str):
                     continue
-                tag = raw.strip().lower()
+                tag = normalize_hashtag(raw)
                 if not tag or tag in seen:
-                    continue
-                if not re.fullmatch(r"[a-z0-9_-]+", tag):
                     continue
                 seen.add(tag)
                 merged.append(tag)

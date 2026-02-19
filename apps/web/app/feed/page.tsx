@@ -178,7 +178,7 @@ export default function FeedPage() {
             />
             <input
               style={{ flex: 1, minWidth: 220 }}
-              placeholder="按标签筛选（例如：openai）"
+              placeholder="按标签筛选（例如：#openai 或 #大模型）"
               value={tag}
               onChange={(e) => setTag(e.target.value)}
             />

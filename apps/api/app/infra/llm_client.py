@@ -11,10 +11,10 @@ import urllib.request
 
 from app.core.config import settings
 from app.core.published_at import parse_datetime
+from app.core.tag_utils import normalize_hashtag_list
 from app.infra.network import urlopen_with_optional_proxy
 
 TRANSIENT_HTTP_STATUS = {429, 500, 502, 503, 504}
-ALLOWED_TAG_RE = re.compile(r"^[a-z0-9_-]+$")
 CJK_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
 MAX_OUTPUT_TAGS = 5
 MAX_TITLE_LENGTH = 120
@@ -53,6 +53,7 @@ class LLMAnalysisResult:
     summary: str
     summary_zh: str | None
     tags: list[str]
+    tags_zh: list[str] | None
     model_name: str | None
     input_tokens: int | None
     output_tokens: int | None
@@ -113,11 +114,11 @@ class LLMClient:
         system_prompt = (
             "你是 Prism 的内容分析助手。"
             "请严格返回 JSON 对象，字段必须是 source_language, title, published_at, summary, tags。"
-            "如果 source_language=non-zh，必须同时返回 title_zh 和 summary_zh。"
-            "如果 source_language=zh，title_zh 和 summary_zh 可选。"
+            "如果 source_language=non-zh，必须同时返回 title_zh、summary_zh 和 tags_zh。"
+            "如果 source_language=zh，title_zh、summary_zh、tags_zh 可选。"
             "source_language 只能是 zh 或 non-zh。"
             "published_at 可为空，格式优先使用 ISO8601。"
-            "tags 必须是 1 到 5 个英文小写标签，仅允许 a-z 0-9 _ -。"
+            "tags/tags_zh 必须是 1 到 5 个 hashtag 风格标签，输出时不要带 #，允许中文、英文、数字、下划线和中划线。"
             "不要输出 JSON 之外的任何文字。"
         )
         if repair_mode:
@@ -137,7 +138,8 @@ class LLMClient:
                 "published_at": "string, optional, datetime",
                 "summary": "string, required, <=400 chars",
                 "summary_zh": "string, optional when zh, required when non-zh, <=400 chars",
-                "tags": "string[], required, 1~5, lowercase english tags only",
+                "tags": "string[], required, 1~5, original-language hashtags without #",
+                "tags_zh": "string[], optional when zh, required when non-zh, Chinese hashtags without #",
             },
         }
 
@@ -255,15 +257,24 @@ class LLMClient:
             output.get("summary_zh") or output.get("summaryZh") or output.get("translated_summary")
         )
         tags = self._normalize_tags(output.get("tags"))
+        tags_zh = self._normalize_tags(
+            output.get("tags_zh")
+            or output.get("tagsZh")
+            or output.get("translated_tags")
+            or output.get("translatedTags")
+        )
         if not summary:
             raise LLMClientError(code="invalid_output", message="模型输出缺少有效摘要")
         if source_language == "non-zh" and not summary_zh:
             raise LLMClientError(code="invalid_output", message="非中文内容缺少中文摘要")
         if not tags:
             raise LLMClientError(code="invalid_output", message="模型输出缺少有效标签")
+        if source_language == "non-zh" and not tags_zh:
+            raise LLMClientError(code="invalid_output", message="非中文内容缺少中文标签")
         if source_language == "zh":
             summary_zh = summary_zh or summary
             title_zh = title_zh or title
+            tags_zh = tags_zh or tags
 
         model_name, input_tokens, output_tokens = self._extract_usage(
             provider_style=provider_style,
@@ -278,6 +289,7 @@ class LLMClient:
             summary=summary,
             summary_zh=summary_zh,
             tags=tags,
+            tags_zh=tags_zh,
             model_name=model_name,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -487,21 +499,7 @@ class LLMClient:
     def _normalize_tags(self, raw: Any) -> list[str]:
         if not isinstance(raw, list):
             return []
-        tags: list[str] = []
-        seen: set[str] = set()
-        for item in raw:
-            if not isinstance(item, str):
-                continue
-            tag = item.strip().lower()
-            if not tag or tag in seen:
-                continue
-            if not ALLOWED_TAG_RE.fullmatch(tag):
-                continue
-            seen.add(tag)
-            tags.append(tag)
-            if len(tags) >= MAX_OUTPUT_TAGS:
-                break
-        return tags
+        return normalize_hashtag_list(raw, max_count=MAX_OUTPUT_TAGS)
 
     def _safe_int(self, value: Any) -> int | None:
         try:

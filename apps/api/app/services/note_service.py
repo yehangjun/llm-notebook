@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.published_at import infer_published_at
 from app.core.config import settings
+from app.core.tag_utils import normalize_hashtag, normalize_hashtag_list, pick_localized_tags
 from app.core.url_blacklist import CATEGORY_LABELS, match_blacklisted_host
 from app.db.session import SessionLocal
 from app.infra.llm_client import LLMAnalysisResult, LLMClient, LLMClientError
@@ -62,6 +63,7 @@ class SourceAnalysis:
     summary_text: str
     summary_text_zh: str | None
     tags: list[str]
+    tags_zh: list[str]
     model_provider: str | None
     model_name: str | None
     model_version: str | None
@@ -247,6 +249,7 @@ class NoteService:
             output_summary=result.summary_text,
             output_summary_zh=result.summary_text_zh,
             output_tags=result.tags,
+            output_tags_zh=result.tags_zh,
             summary_text=result.summary_text,
             key_points=result.tags,
             model_provider=result.model_provider,
@@ -282,6 +285,7 @@ class NoteService:
             output_summary=None,
             output_summary_zh=None,
             output_tags=None,
+            output_tags_zh=None,
             summary_text=None,
             key_points=None,
             model_provider=self._analysis_model_provider(),
@@ -312,12 +316,13 @@ class NoteService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="笔记不存在")
 
         latest_summary = self.note_repo.get_latest_summary(note.id)
+        prefer_zh = self._prefer_zh_ui(ui_language)
         return PublicNoteDetail(
             id=note.id,
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
-            source_title=note.source_title,
-            tags=note.tags_json or [],
+            source_title=self._display_title_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
+            tags=self._display_tags_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
             note_body_md=note.note_body_md,
             analysis_status=note.analysis_status,
             created_at=note.created_at,
@@ -333,17 +338,13 @@ class NoteService:
         ui_language: str | None = None,
     ) -> NoteListItem:
         prefer_zh = self._prefer_zh_ui(ui_language)
-        title_original = (latest_summary.output_title if latest_summary else None) or note.source_title
-        title_zh = latest_summary.output_title_zh if latest_summary else None
-        if latest_summary and latest_summary.source_language == "zh":
-            title_zh = title_zh or title_original
         return NoteListItem(
             id=note.id,
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
-            source_title=self._pick_display_text(prefer_zh=prefer_zh, original=title_original, zh=title_zh),
+            source_title=self._display_title_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
             published_at=latest_summary.published_at if latest_summary else None,
-            tags=note.tags_json or [],
+            tags=self._display_tags_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
             visibility=note.visibility,
             analysis_status=note.analysis_status,
             updated_at=note.updated_at,
@@ -351,12 +352,13 @@ class NoteService:
 
     def _build_note_detail(self, note: Note, *, ui_language: str | None = None) -> NoteDetail:
         latest_summary = self.note_repo.get_latest_summary(note.id)
+        prefer_zh = self._prefer_zh_ui(ui_language)
         return NoteDetail(
             id=note.id,
             source_url=note.source_url_normalized,
             source_domain=note.source_domain,
-            source_title=note.source_title,
-            tags=note.tags_json or [],
+            source_title=self._display_title_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
+            tags=self._display_tags_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
             note_body_md=note.note_body_md,
             visibility=note.visibility,
             analysis_status=note.analysis_status,
@@ -385,6 +387,7 @@ class NoteService:
             translated_summary = translated_summary or merged_summary
 
         merged_tags = summary.output_tags_json or summary.key_points_json or []
+        translated_tags = summary.output_tags_zh_json
 
         return NoteSummaryPublic(
             id=summary.id,
@@ -393,7 +396,13 @@ class NoteService:
             title=self._pick_display_text(prefer_zh=prefer_zh, original=original_title, zh=translated_title),
             published_at=summary.published_at,
             summary_text=self._pick_display_text(prefer_zh=prefer_zh, original=merged_summary, zh=translated_summary),
-            tags=merged_tags,
+            tags=pick_localized_tags(
+                prefer_zh=prefer_zh,
+                source_language=summary.source_language,
+                original_tags=merged_tags,
+                zh_tags=translated_tags,
+                max_count=MAX_ANALYSIS_TAGS,
+            ),
             model_provider=summary.model_provider,
             model_name=summary.model_name,
             model_version=summary.model_version,
@@ -401,6 +410,50 @@ class NoteService:
             error_code=summary.error_code,
             error_message=summary.error_message,
         )
+
+    def _display_title_for_note(
+        self,
+        *,
+        note: Note,
+        latest_summary: NoteAISummary | None,
+        prefer_zh: bool,
+    ) -> str | None:
+        title_original = (latest_summary.output_title if latest_summary else None) or note.source_title
+        title_zh = latest_summary.output_title_zh if latest_summary else None
+        if latest_summary and latest_summary.source_language == "zh":
+            title_zh = title_zh or title_original
+        return self._pick_display_text(prefer_zh=prefer_zh, original=title_original, zh=title_zh)
+
+    def _display_tags_for_note(
+        self,
+        *,
+        note: Note,
+        latest_summary: NoteAISummary | None,
+        prefer_zh: bool,
+    ) -> list[str]:
+        note_tags = normalize_hashtag_list(note.tags_json or [], max_count=MAX_NOTE_TAGS)
+        if not latest_summary:
+            return note_tags
+
+        summary_original_tags = latest_summary.output_tags_json or latest_summary.key_points_json or []
+        summary_translated_tags = latest_summary.output_tags_zh_json
+        summary_display_tags = pick_localized_tags(
+            prefer_zh=prefer_zh,
+            source_language=latest_summary.source_language,
+            original_tags=summary_original_tags,
+            zh_tags=summary_translated_tags,
+            max_count=MAX_ANALYSIS_TAGS,
+        )
+        if not summary_display_tags:
+            return note_tags
+        if not note_tags:
+            return summary_display_tags
+
+        normalized_note_tags = normalize_hashtag_list(note_tags, max_count=MAX_NOTE_TAGS)
+        normalized_summary_original_tags = normalize_hashtag_list(summary_original_tags, max_count=MAX_ANALYSIS_TAGS)
+        if normalized_note_tags and normalized_note_tags == normalized_summary_original_tags:
+            return summary_display_tags
+        return note_tags
 
     def _analyze_source(self, note: Note) -> SourceAnalysis:
         source_title, content, inferred_published_at = self._fetch_source_content(note.source_url)
@@ -469,6 +522,11 @@ class NoteService:
         tags = result.tags[:MAX_ANALYSIS_TAGS]
         if not tags:
             raise AnalysisError(code="invalid_output", message="模型未返回有效标签")
+        tags_zh = (result.tags_zh or [])[:MAX_ANALYSIS_TAGS]
+        if result.source_language == "zh":
+            tags_zh = tags_zh or tags
+        elif not tags_zh:
+            raise AnalysisError(code="invalid_output", message="模型未返回中文标签")
 
         summary_text = result.summary.strip()[:400]
         if not summary_text:
@@ -490,6 +548,7 @@ class NoteService:
                 else ((result.summary_zh or "").strip()[:400] or None)
             ),
             tags=tags,
+            tags_zh=tags_zh,
             model_provider=model_provider,
             model_name=result.model_name,
             model_version=model_version,
@@ -693,16 +752,20 @@ class NoteService:
         tags: list[str] = []
         seen: set[str] = set()
         for value in values:
-            tag = value.strip().lower()
-            if not tag:
+            raw = (value or "").strip()
+            if not raw:
                 continue
+            tag = normalize_hashtag(raw)
+            if not tag:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="标签仅支持中英文、数字、下划线和中划线（可选 # 前缀）",
+                )
             if len(tag) > MAX_NOTE_TAG_LENGTH:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"标签长度不能超过 {MAX_NOTE_TAG_LENGTH} 字符",
                 )
-            if not re.fullmatch(r"[a-z0-9_-]+", tag):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="标签仅支持字母数字下划线和中划线")
             if tag in seen:
                 continue
             seen.add(tag)

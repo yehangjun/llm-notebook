@@ -88,12 +88,12 @@ export default function NewNotePage() {
               <label htmlFor="tags">标签（可选）</label>
               <input
                 id="tags"
-                placeholder="例如：openai,agent,rag"
+                placeholder="例如：#openai, #大模型"
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
               />
               <div className="helper" style={{ marginTop: 6 }}>
-                使用英文逗号或空格分隔，最多 5 个，支持小写字母/数字/下划线/中划线。
+                使用逗号或空格分隔，最多 5 个，支持中英文 hashtag（可带 # 前缀）。
               </div>
             </div>
             <div className="field">
@@ -120,7 +120,7 @@ export default function NewNotePage() {
 function parseTags(input: string): string[] {
   const chunks = input
     .split(/[,\s，]+/)
-    .map((item) => item.trim().toLowerCase())
+    .map((item) => item.trim().replace(/^#+/, "").toLowerCase())
     .filter(Boolean);
   return [...new Set(chunks)].slice(0, MAX_NOTE_TAGS);
 }

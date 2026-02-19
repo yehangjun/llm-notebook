@@ -35,6 +35,7 @@ class AggregateItem(Base):
     source_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     source_title_zh: Mapped[str | None] = mapped_column(String(512), nullable=True)
     tags_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    tags_zh_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     analysis_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     analysis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
