@@ -86,9 +86,9 @@ alembic revision -m "your migration name"
   - `REGISTER_EMAIL_CODE_TTL_SECONDS`
   - `REGISTER_EMAIL_CODE_COOLDOWN_SECONDS`
   - `REGISTER_EMAIL_CODE_MAX_ATTEMPTS`
-- 内容分析模型相关环境变量（OpenAI-compatible）：
-  - `LLM_PROVIDER_NAME`（默认 `openai-compatible`）
-  - `LLM_BASE_URL`
+- 内容分析模型相关环境变量（支持 `OpenAI` / `Gemini` / `Claude` 接口风格）：
+  - `LLM_PROVIDER_NAME`（默认 `openai`，可选 `openai` / `gemini` / `claude`）
+  - `LLM_BASE_URL`（可选，不填时按 provider 使用官方默认端点）
   - `LLM_API_KEY`
   - `LLM_MODEL_NAME`
   - `LLM_TIMEOUT_SECONDS`

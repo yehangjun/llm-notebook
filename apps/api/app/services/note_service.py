@@ -14,11 +14,7 @@ from app.core.published_at import infer_published_at
 from app.core.config import settings
 from app.core.url_blacklist import CATEGORY_LABELS, match_blacklisted_host
 from app.db.session import SessionLocal
-from app.infra.openai_compatible_client import (
-    OpenAICompatibleAnalysisResult,
-    OpenAICompatibleClient,
-    OpenAICompatibleClientError,
-)
+from app.infra.llm_client import LLMAnalysisResult, LLMClient, LLMClientError
 from app.infra.redis_client import get_redis
 from app.infra.source_fetcher import fetch_source_for_analysis
 from app.models.note import Note
@@ -91,7 +87,7 @@ class NoteService:
         self.db = db
         self.note_repo = NoteRepository(db)
         self.redis: Redis = get_redis()
-        self.llm_client = OpenAICompatibleClient()
+        self.llm_client = LLMClient()
 
     def create_note(self, *, user: User, payload: CreateNoteRequest) -> CreateNoteResponse:
         self._enforce_create_limit(user.id)
@@ -439,7 +435,7 @@ class NoteService:
                 content=content,
                 repair_mode=False,
             )
-        except OpenAICompatibleClientError as exc:
+        except LLMClientError as exc:
             if exc.code != "invalid_output":
                 raise AnalysisError(code=exc.code, message=exc.message) from exc
             try:
@@ -450,7 +446,7 @@ class NoteService:
                     content=content,
                     repair_mode=True,
                 )
-            except OpenAICompatibleClientError as second_exc:
+            except LLMClientError as second_exc:
                 raise AnalysisError(code=second_exc.code, message=second_exc.message) from second_exc
 
         return self._build_source_analysis(
@@ -464,7 +460,7 @@ class NoteService:
     def _build_source_analysis(
         self,
         *,
-        result: OpenAICompatibleAnalysisResult,
+        result: LLMAnalysisResult,
         fallback_title: str | None,
         fallback_published_at: datetime | None,
         model_provider: str,

@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     note_model_provider: str = Field(default="prism", validation_alias="NOTE_MODEL_PROVIDER")
     note_model_name: str = Field(default="summary-lite", validation_alias="NOTE_MODEL_NAME")
     note_model_version: str = Field(default="v1", validation_alias="NOTE_MODEL_VERSION")
-    llm_provider_name: str = Field(default="openai-compatible", validation_alias="LLM_PROVIDER_NAME")
+    llm_provider_name: str = Field(default="openai", validation_alias="LLM_PROVIDER_NAME")
     llm_base_url: str | None = Field(
         default=None,
         validation_alias="LLM_BASE_URL",

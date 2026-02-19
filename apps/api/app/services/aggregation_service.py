@@ -21,7 +21,7 @@ from app.core.published_at import infer_published_at, parse_datetime
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.infra.network import urlopen_with_optional_proxy
-from app.infra.openai_compatible_client import OpenAICompatibleClient, OpenAICompatibleClientError
+from app.infra.llm_client import LLMClient, LLMClientError
 from app.infra.redis_client import get_redis
 from app.infra.source_fetcher import fetch_source_for_analysis
 from app.models.aggregate_item import AggregateItem
@@ -77,7 +77,7 @@ class FeedEntryCandidate:
 class AggregationService:
     def __init__(self, db: Session) -> None:
         self.db = db
-        self.llm_client = OpenAICompatibleClient()
+        self.llm_client = LLMClient()
 
     def ensure_preset_sources(self) -> None:
         preset_sources = _load_preset_source_configs()
@@ -409,7 +409,7 @@ class AggregationService:
                 content=content,
                 repair_mode=False,
             )
-        except OpenAICompatibleClientError as exc:
+        except LLMClientError as exc:
             if exc.code != "invalid_output":
                 raise ValueError(exc.message) from exc
             try:
@@ -420,7 +420,7 @@ class AggregationService:
                     content=content,
                     repair_mode=True,
                 )
-            except OpenAICompatibleClientError as second_exc:
+            except LLMClientError as second_exc:
                 raise ValueError(second_exc.message) from second_exc
 
         summary_text = (result.summary or "").strip()[:400]
