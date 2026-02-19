@@ -122,6 +122,12 @@ const EMPTY_CREATE_FORM = {
   is_active: true,
 };
 
+const INPUT_CLASS =
+  "h-10 rounded-md border border-border bg-white px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20";
+const SELECT_CLASS = INPUT_CLASS;
+const TABLE_CLASS =
+  "w-full min-w-[1100px] border-collapse text-sm [&_th]:border-b [&_th]:border-border [&_th]:bg-muted/40 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-b [&_td]:border-border [&_td]:px-3 [&_td]:py-2";
+
 export default function AdminSourcesPage() {
   const router = useRouter();
   const [me, setMe] = useState<UserPublic | null>(null);
@@ -470,9 +476,9 @@ export default function AdminSourcesPage() {
 
   if (loading && sources.length === 0) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">加载中...</section>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[1080px]">
+          <section className="rounded-lg border border-border bg-white p-6">加载中...</section>
         </div>
       </main>
     );
@@ -480,13 +486,13 @@ export default function AdminSourcesPage() {
 
   if (!canRender) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[1080px]">
+          <section className="rounded-lg border border-border bg-white p-6">
             <h1 style={{ marginTop: 0 }}>管理后台</h1>
-            <div className="error">{error || "无权限"}</div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn secondary" type="button" onClick={() => router.push("/")}>
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error || "无权限"}</div>
+            <div className="flex flex-wrap gap-2" style={{ marginTop: 12 }}>
+              <button className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50" type="button" onClick={() => router.push("/")}>
                 返回首页
               </button>
             </div>
@@ -497,20 +503,22 @@ export default function AdminSourcesPage() {
   }
 
   return (
-    <main className="page">
-      <div className="container">
-        <section className="card">
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[1080px]">
+        <section className="rounded-lg border border-border bg-white p-6">
           <h1 style={{ margin: 0 }}>管理后台 · 聚合管理</h1>
           <AdminTabs />
 
-          <form className="row" onSubmit={onSearch} style={{ marginTop: 16 }}>
+          <form className="flex flex-wrap gap-2" onSubmit={onSearch} style={{ marginTop: 16 }}>
             <input
+              className={INPUT_CLASS}
               style={{ flex: 1, minWidth: 220 }}
               placeholder="按 slug / 名称 / 域名 / 链接搜索"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
             />
             <select
+              className={SELECT_CLASS}
               value={deletedFilter}
               onChange={(e) => setDeletedFilter(e.target.value as SourceDeletedFilter)}
             >
@@ -519,6 +527,7 @@ export default function AdminSourcesPage() {
               <option value="deleted">已删除</option>
             </select>
             <select
+              className={SELECT_CLASS}
               value={activeFilter}
               onChange={(e) => setActiveFilter(e.target.value as SourceActiveFilter)}
             >
@@ -526,11 +535,11 @@ export default function AdminSourcesPage() {
               <option value="active">已启用</option>
               <option value="inactive">已停用</option>
             </select>
-            <button className="btn" type="submit">
+            <button className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-50" type="submit">
               搜索
             </button>
             <button
-              className="btn secondary"
+              className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
               type="button"
               disabled={triggeringRefresh}
               onClick={() => void onTriggerRefresh()}
@@ -539,56 +548,62 @@ export default function AdminSourcesPage() {
             </button>
           </form>
 
-          <form className="form-stack" onSubmit={onCreateSource} style={{ marginTop: 16 }}>
-            <div className="row">
+          <form className="space-y-4" onSubmit={onCreateSource} style={{ marginTop: 16 }}>
+            <div className="flex flex-wrap gap-2">
               <input
+                className={INPUT_CLASS}
                 style={{ minWidth: 140, flex: 1 }}
                 placeholder="slug（如 openai-research）"
                 value={createForm.slug}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, slug: e.target.value }))}
               />
               <input
+                className={INPUT_CLASS}
                 style={{ minWidth: 180, flex: 1 }}
                 placeholder="展示名称"
                 value={createForm.display_name}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, display_name: e.target.value }))}
               />
               <input
+                className={INPUT_CLASS}
                 style={{ minWidth: 180, flex: 1 }}
                 placeholder="source_domain（如 openai.com）"
                 value={createForm.source_domain}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, source_domain: e.target.value }))}
               />
             </div>
-            <div className="row">
+            <div className="flex flex-wrap gap-2">
               <input
+                className={INPUT_CLASS}
                 style={{ minWidth: 260, flex: 1 }}
                 placeholder="feed_url（RSS/Atom）"
                 value={createForm.feed_url}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, feed_url: e.target.value }))}
               />
               <input
+                className={INPUT_CLASS}
                 style={{ minWidth: 260, flex: 1 }}
                 placeholder="homepage_url"
                 value={createForm.homepage_url}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, homepage_url: e.target.value }))}
               />
-              <label className="row" style={{ alignItems: "center", minWidth: 90 }}>
+              <label className="flex min-w-[90px] items-center gap-2">
                 <input
+                  className="h-4 w-4 accent-blue-600"
                   type="checkbox"
                   checked={createForm.is_active}
                   onChange={(e) => setCreateForm((prev) => ({ ...prev, is_active: e.target.checked }))}
                 />
                 启用
               </label>
-              <button className="btn" type="submit" disabled={creating}>
+              <button className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-50" type="submit" disabled={creating}>
                 {creating ? "创建中..." : "新增信息源"}
               </button>
             </div>
           </form>
 
-          {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
-          {success && <div className="success" style={{ marginTop: 12 }}>{success}</div>}
+          {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" style={{ marginTop: 12 }}>{error}</div>}
+          {success && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" style={{ marginTop: 12 }}>{success}</div>}
 
           {refreshJob && (
             <div style={{ marginTop: 12, border: "1px solid var(--line)", borderRadius: 12, padding: 12 }}>
@@ -604,14 +619,15 @@ export default function AdminSourcesPage() {
                   {refreshJob.failed_items ?? 0}
                 </div>
               )}
-              {refreshJob.error_message && <div style={{ marginTop: 6 }} className="error">{refreshJob.error_message}</div>}
+              {refreshJob.error_message && <div style={{ marginTop: 6 }} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{refreshJob.error_message}</div>}
             </div>
           )}
 
           <section style={{ marginTop: 16 }}>
             <h2 style={{ margin: "0 0 8px" }}>聚合条目分析状态</h2>
-            <form className="row" onSubmit={onSearchAggregates}>
+            <form className="flex flex-wrap gap-2" onSubmit={onSearchAggregates}>
               <select
+                className={SELECT_CLASS}
                 value={aggregateStatusFilter}
                 onChange={(e) => setAggregateStatusFilter(e.target.value as AggregateStatusFilter)}
               >
@@ -621,7 +637,7 @@ export default function AdminSourcesPage() {
                 <option value="succeeded">成功</option>
                 <option value="failed">失败</option>
               </select>
-              <select value={aggregateSourceIdFilter} onChange={(e) => setAggregateSourceIdFilter(e.target.value)}>
+              <select className={SELECT_CLASS} value={aggregateSourceIdFilter} onChange={(e) => setAggregateSourceIdFilter(e.target.value)}>
                 <option value="">全部信息源</option>
                 {sources
                   .filter((source) => !source.is_deleted)
@@ -632,17 +648,18 @@ export default function AdminSourcesPage() {
                   ))}
               </select>
               <input
+                className={INPUT_CLASS}
                 style={{ flex: 1, minWidth: 220 }}
                 placeholder="按来源 slug / 标题 / 域名 / 错误信息搜索"
                 value={aggregateKeyword}
                 onChange={(e) => setAggregateKeyword(e.target.value)}
               />
-              <button className="btn" type="submit" disabled={aggregateLoading}>
+              <button className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-50" type="submit" disabled={aggregateLoading}>
                 {aggregateLoading ? "查询中..." : "查询条目"}
               </button>
             </form>
             <div style={{ overflowX: "auto", marginTop: 12 }}>
-              <table className="admin-table">
+              <table className={TABLE_CLASS}>
                 <thead>
                   <tr>
                     <th>信息源</th>
@@ -665,7 +682,7 @@ export default function AdminSourcesPage() {
                       <td>{new Date(item.updated_at).toLocaleString()}</td>
                       <td>
                         <button
-                          className="btn secondary"
+                          className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                           type="button"
                           onClick={() => void onReanalyzeAggregate(item)}
                           disabled={actingAggregateId === item.id}
@@ -685,9 +702,9 @@ export default function AdminSourcesPage() {
                 </tbody>
               </table>
             </div>
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="flex flex-wrap gap-2" style={{ marginTop: 12 }}>
               <button
-                className="btn secondary"
+                className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                 type="button"
                 disabled={aggregateLoading || aggregateOffset === 0}
                 onClick={() => void onChangeAggregatePage("prev")}
@@ -695,21 +712,21 @@ export default function AdminSourcesPage() {
                 上一页
               </button>
               <button
-                className="btn secondary"
+                className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                 type="button"
                 disabled={aggregateLoading || !aggregateHasNext}
                 onClick={() => void onChangeAggregatePage("next")}
               >
                 下一页
               </button>
-              <span className="helper">
+              <span className="text-sm text-muted-foreground">
                 第 {Math.floor(aggregateOffset / AGGREGATE_PAGE_SIZE) + 1} 页 · 每页 {AGGREGATE_PAGE_SIZE} 条
               </span>
             </div>
           </section>
 
-          <div style={{ overflowX: "auto", marginTop: 16 }}>
-            <table className="admin-table">
+            <div style={{ overflowX: "auto", marginTop: 16 }}>
+            <table className={TABLE_CLASS}>
               <thead>
                 <tr>
                   <th>Slug</th>
@@ -738,6 +755,7 @@ export default function AdminSourcesPage() {
                       <td>{source.slug}</td>
                       <td>
                         <input
+                          className={INPUT_CLASS}
                           value={draft.display_name}
                           disabled={source.is_deleted}
                           onChange={(e) =>
@@ -750,6 +768,7 @@ export default function AdminSourcesPage() {
                       </td>
                       <td>
                         <input
+                          className={INPUT_CLASS}
                           value={draft.source_domain}
                           disabled={source.is_deleted}
                           onChange={(e) =>
@@ -762,6 +781,7 @@ export default function AdminSourcesPage() {
                       </td>
                       <td>
                         <input
+                          className={INPUT_CLASS}
                           value={draft.feed_url}
                           disabled={source.is_deleted}
                           onChange={(e) =>
@@ -774,6 +794,7 @@ export default function AdminSourcesPage() {
                       </td>
                       <td>
                         <input
+                          className={INPUT_CLASS}
                           value={draft.homepage_url}
                           disabled={source.is_deleted}
                           onChange={(e) =>
@@ -786,6 +807,7 @@ export default function AdminSourcesPage() {
                       </td>
                       <td>
                         <input
+                          className="h-4 w-4 accent-blue-600"
                           type="checkbox"
                           checked={draft.is_active}
                           disabled={source.is_deleted}
@@ -807,7 +829,7 @@ export default function AdminSourcesPage() {
                         {!source.is_deleted && (
                           <>
                             <button
-                              className="btn"
+                              className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
                               type="button"
                               onClick={() => void onSaveSource(source.id)}
                               disabled={actingSourceId === source.id}
@@ -815,7 +837,7 @@ export default function AdminSourcesPage() {
                               {actingSourceId === source.id ? "处理中..." : "保存"}
                             </button>
                             <button
-                              className="btn secondary"
+                              className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                               type="button"
                               style={{ marginLeft: 8 }}
                               onClick={() => void onTriggerRefresh(source)}
@@ -824,7 +846,7 @@ export default function AdminSourcesPage() {
                               后台刷新
                             </button>
                             <button
-                              className="btn secondary"
+                              className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                               type="button"
                               style={{ marginLeft: 8 }}
                               onClick={() => void onDeleteSource(source.id, source.slug)}
@@ -836,7 +858,7 @@ export default function AdminSourcesPage() {
                         )}
                         {source.is_deleted && (
                           <button
-                            className="btn secondary"
+                            className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                             type="button"
                             onClick={() => void onRestoreSource(source.id, source.slug)}
                             disabled={actingSourceId === source.id}

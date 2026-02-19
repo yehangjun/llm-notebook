@@ -3,6 +3,9 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
 import { apiRequest } from "../../lib/api";
 import {
   clearAuth,
@@ -13,6 +16,8 @@ import {
 } from "../../lib/auth";
 
 type GenericResponse = { message: string };
+const SELECT_CLASS =
+  "flex h-10 w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -86,9 +91,11 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <main className="page">
-        <div className="container" style={{ maxWidth: 560 }}>
-          <section className="card">加载中...</section>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[640px]">
+          <Card>
+            <CardContent className="py-8 text-sm text-muted-foreground">加载中...</CardContent>
+          </Card>
         </div>
       </main>
     );
@@ -99,47 +106,53 @@ export default function ProfilePage() {
   }
 
   return (
-    <main className="page">
-      <div className="container" style={{ maxWidth: 560 }}>
-        <section className="card">
-          <h1 style={{ marginTop: 0 }}>个人资料</h1>
-          <form className="form-stack" onSubmit={onSave}>
-            <div className="field">
-              <label>ID</label>
-              <input value={user.user_id} disabled />
-            </div>
-            <div className="field">
-              <label>邮箱</label>
-              <input value={user.email} disabled />
-            </div>
-            <div className="field">
-              <label htmlFor="nickname">昵称</label>
-              <input id="nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="lang">界面语言</label>
-              <select id="lang" value={language} onChange={(e) => setLanguage(e.target.value)}>
-                <option value="zh-CN">中文</option>
-                <option value="en-US">English</option>
-              </select>
-            </div>
-            {error && <div className="error">{error}</div>}
-            {success && <div className="success">{success}</div>}
-            <div className="row">
-              {user.is_admin && (
-                <button className="btn secondary" type="button" onClick={() => router.push("/admin")}>
-                  管理后台
-                </button>
-              )}
-              <button className="btn" type="submit">
-                保存
-              </button>
-              <button className="btn danger" type="button" onClick={onLogout}>
-                退出登录
-              </button>
-            </div>
-          </form>
-        </section>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[640px]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">个人资料</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={onSave}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">ID</label>
+                <Input value={user.user_id} disabled />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">邮箱</label>
+                <Input value={user.email} disabled />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="nickname" className="text-sm font-medium text-foreground">
+                  昵称
+                </label>
+                <Input id="nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="lang" className="text-sm font-medium text-foreground">
+                  界面语言
+                </label>
+                <select id="lang" className={SELECT_CLASS} value={language} onChange={(e) => setLanguage(e.target.value)}>
+                  <option value="zh-CN">中文</option>
+                  <option value="en-US">English</option>
+                </select>
+              </div>
+              {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+              {success && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div>}
+              <div className="flex flex-wrap gap-2">
+                {user.is_admin && (
+                  <Button variant="secondary" type="button" onClick={() => router.push("/admin")}>
+                    管理后台
+                  </Button>
+                )}
+                <Button type="submit">保存</Button>
+                <Button variant="destructive" type="button" onClick={onLogout}>
+                  退出登录
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );

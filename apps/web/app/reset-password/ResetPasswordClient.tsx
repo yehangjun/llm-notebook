@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
 
+import { buttonVariants, Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
 import { apiRequest } from "../../lib/api";
 
 type GenericResponse = { message: string };
@@ -40,44 +43,52 @@ export default function ResetPasswordClient() {
   }
 
   return (
-    <main className="page">
-      <div className="container" style={{ maxWidth: 560 }}>
-        <section className="card">
-          <h1 style={{ marginTop: 0 }}>重置密码</h1>
-          {!token && <div className="error">无效链接：缺少 token 参数</div>}
-          <form className="form-stack" onSubmit={onSubmit}>
-            <div className="field">
-              <label htmlFor="new-password">新密码</label>
-              <input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="new-password-confirm">确认新密码</label>
-              <input
-                id="new-password-confirm"
-                type="password"
-                value={newPasswordConfirm}
-                onChange={(e) => setNewPasswordConfirm(e.target.value)}
-                required
-              />
-            </div>
-            {message && <div className="success">{message}</div>}
-            {error && <div className="error">{error}</div>}
-            <div className="row">
-              <button className="btn" type="submit" disabled={loading || !token}>
-                {loading ? "提交中..." : "重置密码"}
-              </button>
-              <Link className="btn secondary" href="/auth">
-                返回登录
-              </Link>
-            </div>
-          </form>
-        </section>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[640px]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">重置密码</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!token && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">无效链接：缺少 token 参数</div>}
+            <form className="space-y-4" onSubmit={onSubmit}>
+              <div className="space-y-2">
+                <label htmlFor="new-password" className="text-sm font-medium text-foreground">
+                  新密码
+                </label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="new-password-confirm" className="text-sm font-medium text-foreground">
+                  确认新密码
+                </label>
+                <Input
+                  id="new-password-confirm"
+                  type="password"
+                  value={newPasswordConfirm}
+                  onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                  required
+                />
+              </div>
+              {message && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div>}
+              {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={loading || !token}>
+                  {loading ? "提交中..." : "重置密码"}
+                </Button>
+                <Link className={buttonVariants({ variant: "secondary" })} href="/auth">
+                  返回登录
+                </Link>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );

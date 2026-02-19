@@ -27,6 +27,9 @@ class NoteListItem(BaseModel):
     source_title: str | None
     published_at: datetime | None
     tags: list[str] = Field(default_factory=list)
+    summary_excerpt: str | None
+    like_count: int
+    bookmark_count: int
     visibility: str
     analysis_status: str
     updated_at: datetime

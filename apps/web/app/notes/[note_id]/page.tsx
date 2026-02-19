@@ -4,12 +4,20 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { Badge } from "../../../components/ui/badge";
+import { Button, buttonVariants } from "../../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
+import { Input } from "../../../components/ui/input";
 import { apiRequest } from "../../../lib/api";
 import { clearAuth, UserPublic } from "../../../lib/auth";
 import { NoteDetail } from "../../../lib/notes";
 
 type Visibility = "private" | "public";
 const MAX_NOTE_TAGS = 5;
+const SELECT_CLASS =
+  "flex h-10 w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20";
+const TEXTAREA_CLASS =
+  "min-h-[220px] w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20";
 
 export default function NoteDetailPage() {
   const params = useParams<{ note_id: string }>();
@@ -136,9 +144,11 @@ export default function NoteDetailPage() {
 
   if (loading) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">加载中...</section>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[980px]">
+          <Card>
+            <CardContent className="py-8 text-sm text-muted-foreground">加载中...</CardContent>
+          </Card>
         </div>
       </main>
     );
@@ -146,149 +156,162 @@ export default function NoteDetailPage() {
 
   if (!note) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">
-            <h1 style={{ marginTop: 0 }}>笔记详情</h1>
-            <div className="error">{error || "笔记不存在"}</div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn secondary" type="button" onClick={() => router.push("/notes")}>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[980px]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-2xl">笔记详情</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error || "笔记不存在"}</div>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/notes")}>
                 返回列表
-              </button>
-            </div>
-          </section>
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="page">
-      <div className="container" style={{ maxWidth: 900 }}>
-        <section className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h1 style={{ margin: 0 }}>学习笔记详情</h1>
-            <div className="row">
-              <button className="btn secondary" type="button" onClick={() => router.push("/notes")}>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[980px]">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <CardTitle className="text-2xl">学习笔记详情</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/notes")}>
                 返回列表
-              </button>
-              <button className="btn secondary" type="button" onClick={onReanalyze} disabled={reanalyzing}>
+              </Button>
+              <Button variant="secondary" size="sm" type="button" onClick={onReanalyze} disabled={reanalyzing}>
                 {reanalyzing ? "重试中..." : "重试分析"}
-              </button>
-              <button className="btn secondary" type="button" onClick={onDelete} disabled={deleting}>
+              </Button>
+              <Button variant="destructive" size="sm" type="button" onClick={onDelete} disabled={deleting}>
                 {deleting ? "删除中..." : "删除笔记"}
-              </button>
+              </Button>
             </div>
-          </div>
+          </CardHeader>
 
-          <div className="note-meta" style={{ marginTop: 14 }}>
-            <div>
-              <strong>来源标题：</strong>
-              {note.source_title || "未提取到标题"}
-            </div>
-            <div>
-              <strong>来源链接：</strong>
-              <a href={note.source_url} target="_blank" rel="noreferrer">
-                {note.source_url}
-              </a>
-            </div>
-            <div>
-              <strong>状态：</strong>
-              <span className={`pill status-${note.analysis_status}`}>{renderStatus(note.analysis_status)}</span>
-            </div>
-            {!!note.tags.length && (
-              <div className="row">
-                {note.tags.map((item) => (
-                  <span key={`${note.id}-${item}`} className="pill">
-                    #{item}
-                  </span>
-                ))}
+          <CardContent className="space-y-6">
+            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
+              <h2 className="text-base font-semibold text-foreground">来源信息</h2>
+              <div className="grid gap-2 text-sm text-foreground">
+                <div>
+                  <span className="font-medium">来源标题：</span>
+                  {note.source_title || "未提取到标题"}
+                </div>
+                <div className="break-all">
+                  <span className="font-medium">来源链接：</span>
+                  <a className="text-primary underline-offset-4 hover:underline" href={note.source_url} target="_blank" rel="noreferrer">
+                    {note.source_url}
+                  </a>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">状态：</span>
+                  <Badge className={statusClassName(note.analysis_status)}>{renderStatus(note.analysis_status)}</Badge>
+                </div>
+                {!!note.tags.length && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {note.tags.map((item) => (
+                      <Badge key={`${note.id}-${item}`} variant="muted">
+                        #{item}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {note.analysis_error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{note.analysis_error}</div>}
               </div>
-            )}
-            {note.analysis_error && <div className="error">{note.analysis_error}</div>}
-          </div>
+            </section>
 
-          <div style={{ marginTop: 16 }}>
-            <h2 style={{ margin: "0 0 8px" }}>AI 摘要（只读）</h2>
-            {!note.latest_summary && <div className="helper">暂无摘要</div>}
-            {note.latest_summary && note.latest_summary.status === "failed" && (
-              <div className="error">{note.latest_summary.error_message || "分析失败"}</div>
-            )}
-            {note.latest_summary?.title && (
-              <div style={{ marginBottom: 8 }}>
-                <strong>分析标题：</strong>
-                {note.latest_summary.title}
-              </div>
-            )}
-            {note.latest_summary?.published_at && (
-              <div style={{ marginBottom: 8 }}>
-                <strong>发布时间：</strong>
-                {new Date(note.latest_summary.published_at).toLocaleString()}
-              </div>
-            )}
-            {note.latest_summary?.summary_text && <p className="summary-block">{note.latest_summary.summary_text}</p>}
-            {!!note.latest_summary?.tags?.length && (
-              <div className="row" style={{ marginTop: 8 }}>
-                {note.latest_summary.tags.map((item) => (
-                  <span key={`${note.latest_summary?.id}-${item}`} className="pill">
-                    #{item}
-                  </span>
-                ))}
-              </div>
-            )}
-            {note.latest_summary && (
-              <div className="helper" style={{ fontSize: 13 }}>
-                模型：{note.latest_summary.model_provider || "-"} / {note.latest_summary.model_name || "-"} /{" "}
-                {note.latest_summary.model_version || "-"} · {new Date(note.latest_summary.analyzed_at).toLocaleString()}
-                {note.latest_summary.error_code ? ` · 错误码 ${note.latest_summary.error_code}` : ""}
-              </div>
-            )}
-          </div>
+            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
+              <h2 className="text-base font-semibold text-foreground">AI 摘要（只读）</h2>
+              {!note.latest_summary && <div className="text-sm text-muted-foreground">暂无摘要</div>}
+              {note.latest_summary && note.latest_summary.status === "failed" && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {note.latest_summary.error_message || "分析失败"}
+                </div>
+              )}
+              {note.latest_summary?.title && (
+                <div className="text-sm">
+                  <span className="font-medium">分析标题：</span>
+                  {note.latest_summary.title}
+                </div>
+              )}
+              {note.latest_summary?.published_at && (
+                <div className="text-sm">
+                  <span className="font-medium">发布时间：</span>
+                  {new Date(note.latest_summary.published_at).toLocaleString()}
+                </div>
+              )}
+              {note.latest_summary?.summary_text && <p className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6">{note.latest_summary.summary_text}</p>}
+              {!!note.latest_summary?.tags?.length && (
+                <div className="flex flex-wrap gap-1.5">
+                  {note.latest_summary.tags.map((item) => (
+                    <Badge key={`${note.latest_summary?.id}-${item}`} variant="muted">
+                      #{item}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {note.latest_summary && (
+                <div className="text-xs text-muted-foreground">
+                  模型：{note.latest_summary.model_provider || "-"} / {note.latest_summary.model_name || "-"} /{" "}
+                  {note.latest_summary.model_version || "-"} · {new Date(note.latest_summary.analyzed_at).toLocaleString()}
+                  {note.latest_summary.error_code ? ` · 错误码 ${note.latest_summary.error_code}` : ""}
+                </div>
+              )}
+            </section>
 
-          <form className="form-stack" onSubmit={onSave} style={{ marginTop: 16 }}>
-            <div className="field">
-              <label htmlFor="visibility">可见性</label>
-              <select id="visibility" value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
-                <option value="private">私有</option>
-                <option value="public">公开</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="tags">标签（可选）</label>
-              <input
-                id="tags"
-                placeholder="例如：#openai, #大模型"
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-              />
-              <div className="helper" style={{ marginTop: 6 }}>
-                使用逗号或空格分隔，最多 5 个，支持中英文 hashtag（可带 # 前缀）。
+            <form className="space-y-4" onSubmit={onSave}>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label htmlFor="visibility" className="text-sm font-medium text-foreground">
+                    可见性
+                  </label>
+                  <select id="visibility" className={SELECT_CLASS} value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
+                    <option value="private">私有</option>
+                    <option value="public">公开</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="tags" className="text-sm font-medium text-foreground">
+                    标签（可选）
+                  </label>
+                  <Input
+                    id="tags"
+                    placeholder="例如：#openai, #大模型"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                  />
+                  <div className="text-xs text-muted-foreground">使用逗号或空格分隔，最多 5 个，支持中英文 hashtag（可带 # 前缀）。</div>
+                </div>
               </div>
-            </div>
-            {note.visibility === "public" && (
-              <div className="helper">
-                公开链接：
-                <Link href={`/notes/public/${note.id}`} style={{ marginLeft: 6 }}>
-                  {publicUrl || `/notes/public/${note.id}`}
-                </Link>
+
+              {note.visibility === "public" && (
+                <div className="text-sm text-muted-foreground">
+                  公开链接：
+                  <Link className={buttonVariants({ variant: "ghost", size: "sm" })} href={`/notes/public/${note.id}`}>
+                    {publicUrl || `/notes/public/${note.id}`}
+                  </Link>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label htmlFor="note-body" className="text-sm font-medium text-foreground">
+                  学习心得
+                </label>
+                <textarea id="note-body" className={TEXTAREA_CLASS} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
               </div>
-            )}
-            <div className="field">
-              <label htmlFor="note-body">学习心得</label>
-              <textarea
-                id="note-body"
-                className="note-textarea"
-                value={noteBody}
-                onChange={(e) => setNoteBody(e.target.value)}
-              />
-            </div>
-            {error && <div className="error">{error}</div>}
-            {success && <div className="success">{success}</div>}
-            <button className="btn" type="submit" disabled={saving}>
-              {saving ? "保存中..." : "保存"}
-            </button>
-          </form>
-        </section>
+
+              {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+              {success && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div>}
+              <Button type="submit" disabled={saving}>
+                {saving ? "保存中..." : "保存"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
@@ -299,6 +322,13 @@ function renderStatus(status: NoteDetail["analysis_status"]): string {
   if (status === "running") return "分析中";
   if (status === "succeeded") return "成功";
   return "失败";
+}
+
+function statusClassName(status: NoteDetail["analysis_status"]): string {
+  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "running") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-red-200 bg-red-50 text-red-700";
 }
 
 function parseTags(input: string): string[] {

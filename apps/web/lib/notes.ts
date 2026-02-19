@@ -21,6 +21,9 @@ export type NoteListItem = {
   source_title: string | null;
   published_at: string | null;
   tags: string[];
+  summary_excerpt: string | null;
+  like_count: number;
+  bookmark_count: number;
   visibility: "private" | "public";
   analysis_status: "pending" | "running" | "succeeded" | "failed";
   updated_at: string;

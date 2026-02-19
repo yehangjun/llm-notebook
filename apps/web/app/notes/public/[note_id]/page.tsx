@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Badge } from "../../../../components/ui/badge";
+import { Button } from "../../../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
 import { apiRequest } from "../../../../lib/api";
 import { getStoredUser } from "../../../../lib/auth";
 import { PublicNoteDetail } from "../../../../lib/notes";
@@ -40,9 +43,11 @@ export default function PublicNotePage() {
 
   if (loading) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">加载中...</section>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[980px]">
+          <Card>
+            <CardContent className="py-8 text-sm text-muted-foreground">加载中...</CardContent>
+          </Card>
         </div>
       </main>
     );
@@ -50,109 +55,119 @@ export default function PublicNotePage() {
 
   if (!note) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">
-            <h1 style={{ marginTop: 0 }}>公开笔记</h1>
-            <div className="error">{error || "内容不存在或不可访问"}</div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn secondary" type="button" onClick={() => router.push("/feed")}>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[980px]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-2xl">公开笔记</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error || "内容不存在或不可访问"}</div>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/feed")}>
                 返回广场
-              </button>
-            </div>
-          </section>
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="page">
-      <div className="container" style={{ maxWidth: 900 }}>
-        <section className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h1 style={{ margin: 0 }}>公开学习笔记</h1>
-            <div className="row">
-              <button className="btn secondary" type="button" onClick={() => router.push("/feed")}>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[980px]">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <CardTitle className="text-2xl">公开学习笔记</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/feed")}>
                 广场
-              </button>
-              <button className="btn secondary" type="button" onClick={() => router.push("/notes")}>
+              </Button>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/notes")}>
                 我的笔记
-              </button>
+              </Button>
             </div>
-          </div>
+          </CardHeader>
 
-          <div className="note-meta" style={{ marginTop: 14 }}>
-            <div>
-              <strong>来源标题：</strong>
-              {note.source_title || "未提取到标题"}
+          <CardContent className="space-y-6">
+            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
+              <h2 className="text-base font-semibold text-foreground">来源信息</h2>
+              <div className="grid gap-2 text-sm text-foreground">
+                <div>
+                  <span className="font-medium">来源标题：</span>
+                  {note.source_title || "未提取到标题"}
+                </div>
+                <div className="break-all">
+                  <span className="font-medium">来源链接：</span>
+                  <a className="text-primary underline-offset-4 hover:underline" href={note.source_url} target="_blank" rel="noreferrer">
+                    {note.source_url}
+                  </a>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">状态：</span>
+                  <Badge className={statusClassName(note.analysis_status)}>{renderStatus(note.analysis_status)}</Badge>
+                </div>
+                {!!note.tags.length && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {note.tags.map((item) => (
+                      <Badge key={`${note.id}-${item}`} variant="muted">
+                        #{item}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
+              <h2 className="text-base font-semibold text-foreground">AI 摘要</h2>
+              {!note.latest_summary && <div className="text-sm text-muted-foreground">暂无摘要</div>}
+              {note.latest_summary && note.latest_summary.status === "failed" && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {note.latest_summary.error_message || "分析失败"}
+                </div>
+              )}
+              {note.latest_summary?.title && (
+                <div className="text-sm">
+                  <span className="font-medium">分析标题：</span>
+                  {note.latest_summary.title}
+                </div>
+              )}
+              {note.latest_summary?.summary_text && <p className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6">{note.latest_summary.summary_text}</p>}
+              {!!note.latest_summary?.tags?.length && (
+                <div className="flex flex-wrap gap-1.5">
+                  {note.latest_summary.tags.map((item) => (
+                    <Badge key={`${note.latest_summary?.id}-${item}`} variant="muted">
+                      #{item}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {note.latest_summary && (
+                <div className="text-xs text-muted-foreground">
+                  模型：{note.latest_summary.model_provider || "-"} / {note.latest_summary.model_name || "-"} /{" "}
+                  {note.latest_summary.model_version || "-"} · {new Date(note.latest_summary.analyzed_at).toLocaleString()}
+                  {note.latest_summary.error_code ? ` · 错误码 ${note.latest_summary.error_code}` : ""}
+                </div>
+              )}
+            </section>
+
+            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
+              <h2 className="text-base font-semibold text-foreground">学习心得</h2>
+              <pre className="overflow-auto rounded-md border border-border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
+                {note.note_body_md || "暂无学习心得"}
+              </pre>
+            </section>
+
+            <div className="text-xs text-muted-foreground">
+              创建于 {new Date(note.created_at).toLocaleString()} · 发布时间{" "}
+              {new Date(note.latest_summary?.published_at ?? note.updated_at).toLocaleString()} · 分享链接：
+              <Link className="ml-1 text-primary underline-offset-4 hover:underline" href={`/notes/public/${note.id}`}>
+                /notes/public/{note.id}
+              </Link>
             </div>
-            <div>
-              <strong>来源链接：</strong>
-              <a href={note.source_url} target="_blank" rel="noreferrer">
-                {note.source_url}
-              </a>
-            </div>
-            <div>
-              <strong>状态：</strong>
-              <span className={`pill status-${note.analysis_status}`}>{renderStatus(note.analysis_status)}</span>
-            </div>
-            {!!note.tags.length && (
-              <div className="row">
-                {note.tags.map((item) => (
-                  <span key={`${note.id}-${item}`} className="pill">
-                    #{item}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginTop: 16 }}>
-            <h2 style={{ margin: "0 0 8px" }}>AI 摘要</h2>
-            {!note.latest_summary && <div className="helper">暂无摘要</div>}
-            {note.latest_summary && note.latest_summary.status === "failed" && (
-              <div className="error">{note.latest_summary.error_message || "分析失败"}</div>
-            )}
-            {note.latest_summary?.title && (
-              <div style={{ marginBottom: 8 }}>
-                <strong>分析标题：</strong>
-                {note.latest_summary.title}
-              </div>
-            )}
-            {note.latest_summary?.summary_text && <p className="summary-block">{note.latest_summary.summary_text}</p>}
-            {!!note.latest_summary?.tags?.length && (
-              <div className="row" style={{ marginTop: 8 }}>
-                {note.latest_summary.tags.map((item) => (
-                  <span key={`${note.latest_summary?.id}-${item}`} className="pill">
-                    #{item}
-                  </span>
-                ))}
-              </div>
-            )}
-            {note.latest_summary && (
-              <div className="helper" style={{ fontSize: 13 }}>
-                模型：{note.latest_summary.model_provider || "-"} / {note.latest_summary.model_name || "-"} /{" "}
-                {note.latest_summary.model_version || "-"} · {new Date(note.latest_summary.analyzed_at).toLocaleString()}
-                {note.latest_summary.error_code ? ` · 错误码 ${note.latest_summary.error_code}` : ""}
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginTop: 18 }}>
-            <h2 style={{ margin: "0 0 8px" }}>学习心得</h2>
-            <pre className="note-preview">{note.note_body_md || "暂无学习心得"}</pre>
-          </div>
-
-          <div className="helper" style={{ marginTop: 12 }}>
-            创建于 {new Date(note.created_at).toLocaleString()} · 发布时间{" "}
-            {new Date(note.latest_summary?.published_at ?? note.updated_at).toLocaleString()} ·
-            分享链接：
-            <Link href={`/notes/public/${note.id}`} style={{ marginLeft: 6 }}>
-              /notes/public/{note.id}
-            </Link>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
@@ -174,4 +189,11 @@ function renderStatus(status: PublicNoteDetail["analysis_status"]): string {
   if (status === "running") return "分析中";
   if (status === "succeeded") return "成功";
   return "失败";
+}
+
+function statusClassName(status: PublicNoteDetail["analysis_status"]): string {
+  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "running") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-red-200 bg-red-50 text-red-700";
 }

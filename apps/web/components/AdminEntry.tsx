@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AUTH_CHANGED_EVENT, getStoredUser, UserPublic } from "../lib/auth";
+import { buttonVariants } from "./ui/button";
 
 export default function AdminEntry() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function AdminEntry() {
   }
 
   return (
-    <button className="account-btn" onClick={() => router.push("/admin")} aria-label="admin-entry">
+    <button className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => router.push("/admin")} aria-label="admin-entry">
       管理后台
     </button>
   );

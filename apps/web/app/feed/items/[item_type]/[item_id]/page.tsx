@@ -3,6 +3,9 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Badge } from "../../../../../components/ui/badge";
+import { Button } from "../../../../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { apiRequest } from "../../../../../lib/api";
 import { clearAuth, UserPublic } from "../../../../../lib/auth";
 import { FeedDetailResponse } from "../../../../../lib/feed";
@@ -101,9 +104,11 @@ export default function FeedItemDetailPage() {
 
   if (loading) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">加载中...</section>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[980px]">
+          <Card>
+            <CardContent className="py-8 text-sm text-muted-foreground">加载中...</CardContent>
+          </Card>
         </div>
       </main>
     );
@@ -111,17 +116,19 @@ export default function FeedItemDetailPage() {
 
   if (!detail) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">
-            <h1 style={{ marginTop: 0 }}>内容详情</h1>
-            <div className="error">{error || "内容不存在"}</div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn secondary" type="button" onClick={() => router.push("/feed")}>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[980px]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-2xl">内容详情</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error || "内容不存在"}</div>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/feed")}>
                 返回广场
-              </button>
-            </div>
-          </section>
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </main>
     );
@@ -129,105 +136,119 @@ export default function FeedItemDetailPage() {
 
   const item = detail.item;
   return (
-    <main className="page">
-      <div className="container" style={{ maxWidth: 920 }}>
-        <section className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h1 style={{ margin: 0 }}>广场详情</h1>
-            <div className="row">
-              <button className="btn secondary" type="button" onClick={() => router.push("/feed")}>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[980px]">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <CardTitle className="text-2xl">广场详情</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/feed")}>
                 返回广场
-              </button>
-              <button
-                className="btn secondary"
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
                 onClick={() => window.open(item.source_url, "_blank", "noopener,noreferrer")}
               >
                 原文链接
-              </button>
+              </Button>
             </div>
-          </div>
-
-          <div className="note-meta" style={{ marginTop: 14 }}>
-            <div>
-              <strong>来源标题：</strong>
-              {item.source_title || item.source_url}
-            </div>
-            <div>
-              <strong>创作者：</strong>
-              {item.creator_name}
-            </div>
-            <div>
-              <strong>来源域名：</strong>
-              {item.source_domain}
-            </div>
-            <div>
-              <strong>状态：</strong>
-              <span className={`pill status-${item.analysis_status}`}>{renderStatus(item.analysis_status)}</span>
-            </div>
-            {item.published_at && (
-              <div>
-                <strong>发布时间：</strong>
-                {new Date(item.published_at).toLocaleString()}
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
+              <h2 className="text-base font-semibold text-foreground">来源信息</h2>
+              <div className="grid gap-2 text-sm text-foreground">
+                <div>
+                  <span className="font-medium">来源标题：</span>
+                  {item.source_title || item.source_url}
+                </div>
+                <div>
+                  <span className="font-medium">创作者：</span>
+                  {item.creator_name}
+                </div>
+                <div>
+                  <span className="font-medium">来源域名：</span>
+                  {item.source_domain}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">状态：</span>
+                  <Badge className={statusClassName(item.analysis_status)}>{renderStatus(item.analysis_status)}</Badge>
+                </div>
+                {item.published_at && (
+                  <div>
+                    <span className="font-medium">发布时间：</span>
+                    {new Date(item.published_at).toLocaleString()}
+                  </div>
+                )}
+                {!!item.tags.length && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {item.tags.map((tagItem) => (
+                      <Badge key={`${item.id}-${tagItem}`} variant="muted">
+                        #{tagItem}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {detail.analysis_error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{detail.analysis_error}</div>}
               </div>
-            )}
-            {!!item.tags.length && (
-              <div className="row">
-                {item.tags.map((tagItem) => (
-                  <span key={`${item.id}-${tagItem}`} className="pill">
-                    #{tagItem}
-                  </span>
-                ))}
+            </section>
+
+            <section className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge>{item.bookmark_count} 收藏</Badge>
+                <Badge>{item.like_count} 点赞</Badge>
+                <Button variant="secondary" size="sm" type="button" onClick={() => void onToggleFollow()} disabled={acting === "follow"}>
+                  {item.following ? "取消关注" : "关注"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => void onToggleBookmark()}
+                  disabled={acting === "bookmark"}
+                >
+                  {item.bookmarked ? "取消收藏" : "收藏"}
+                </Button>
+                <Button variant="secondary" size="sm" type="button" onClick={() => void onToggleLike()} disabled={acting === "like"}>
+                  {item.liked ? "取消点赞" : "点赞"}
+                </Button>
               </div>
-            )}
-            {detail.analysis_error && <div className="error">{detail.analysis_error}</div>}
-          </div>
+            </section>
 
-          <div className="row" style={{ marginTop: 14, alignItems: "center" }}>
-            <span className="pill">{item.bookmark_count} 收藏</span>
-            <span className="pill">{item.like_count} 点赞</span>
-            <button className="btn secondary" type="button" onClick={() => void onToggleFollow()} disabled={acting === "follow"}>
-              {item.following ? "取消关注" : "关注"}
-            </button>
-            <button
-              className="btn secondary"
-              type="button"
-              onClick={() => void onToggleBookmark()}
-              disabled={acting === "bookmark"}
-            >
-              {item.bookmarked ? "取消收藏" : "收藏"}
-            </button>
-            <button className="btn secondary" type="button" onClick={() => void onToggleLike()} disabled={acting === "like"}>
-              {item.liked ? "取消点赞" : "点赞"}
-            </button>
-          </div>
+            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
+              <h2 className="text-base font-semibold text-foreground">AI 摘要</h2>
+              {detail.summary_text ? (
+                <p className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6">{detail.summary_text}</p>
+              ) : (
+                <div className="text-sm text-muted-foreground">暂无摘要</div>
+              )}
+              {!!detail.key_points.length && (
+                <ul className="ml-5 list-disc space-y-1 text-sm text-foreground">
+                  {detail.key_points.map((point, idx) => (
+                    <li key={`${item.id}-${idx}`}>{point}</li>
+                  ))}
+                </ul>
+              )}
+              {(detail.model_provider || detail.model_name || detail.model_version || detail.analyzed_at) && (
+                <div className="text-xs text-muted-foreground">
+                  模型：{detail.model_provider || "-"} / {detail.model_name || "-"} / {detail.model_version || "-"} ·
+                  {detail.analyzed_at ? ` ${new Date(detail.analyzed_at).toLocaleString()}` : " -"}
+                </div>
+              )}
+            </section>
 
-          <div style={{ marginTop: 18 }}>
-            <h2 style={{ margin: "0 0 8px" }}>AI 摘要</h2>
-            {detail.summary_text ? <p className="summary-block">{detail.summary_text}</p> : <div className="helper">暂无摘要</div>}
-            {!!detail.key_points.length && (
-              <ul className="summary-points">
-                {detail.key_points.map((point, idx) => (
-                  <li key={`${item.id}-${idx}`}>{point}</li>
-                ))}
-              </ul>
+            {detail.note_body_md !== null && (
+              <section className="space-y-2 rounded-lg border border-border bg-white p-4">
+                <h2 className="text-base font-semibold text-foreground">学习心得</h2>
+                <pre className="overflow-auto rounded-md border border-border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
+                  {detail.note_body_md || "暂无学习心得"}
+                </pre>
+              </section>
             )}
-            {(detail.model_provider || detail.model_name || detail.model_version || detail.analyzed_at) && (
-              <div className="helper" style={{ fontSize: 13 }}>
-                模型：{detail.model_provider || "-"} / {detail.model_name || "-"} / {detail.model_version || "-"} ·
-                {detail.analyzed_at ? ` ${new Date(detail.analyzed_at).toLocaleString()}` : " -"}
-              </div>
-            )}
-          </div>
-
-          {detail.note_body_md !== null && (
-            <div style={{ marginTop: 18 }}>
-              <h2 style={{ margin: "0 0 8px" }}>学习心得</h2>
-              <pre className="note-preview">{detail.note_body_md || "暂无学习心得"}</pre>
-            </div>
-          )}
-          {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
-        </section>
+            {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
@@ -238,4 +259,11 @@ function renderStatus(status: string): string {
   if (status === "running") return "分析中";
   if (status === "succeeded") return "成功";
   return "失败";
+}
+
+function statusClassName(status: string): string {
+  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "running") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-red-200 bg-red-50 text-red-700";
 }

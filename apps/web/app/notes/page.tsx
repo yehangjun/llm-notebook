@@ -3,6 +3,11 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { apiRequest } from "../../lib/api";
 import { clearAuth, UserPublic } from "../../lib/auth";
 import { FeedItem, FeedListResponse } from "../../lib/feed";
@@ -11,6 +16,8 @@ import { NoteListItem, NoteListResponse } from "../../lib/notes";
 type NotesTab = "notes" | "bookmarks";
 type StatusFilter = "" | "pending" | "running" | "succeeded" | "failed";
 type VisibilityFilter = "" | "private" | "public";
+const SELECT_CLASS =
+  "flex h-10 w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20";
 
 export default function NotesPage() {
   const router = useRouter();
@@ -122,128 +129,142 @@ export default function NotesPage() {
   }
 
   return (
-    <main className="page">
-      <div className="container">
-        <section className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h1 style={{ margin: 0 }}>学习笔记</h1>
-            <button className="btn" type="button" onClick={() => router.push("/notes/new")}>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[1080px]">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <CardTitle className="text-2xl">学习笔记</CardTitle>
+            <Button type="button" onClick={() => router.push("/notes/new")}>
               新建笔记
-            </button>
-          </div>
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Tabs value={tab} onValueChange={(value) => void switchTab(value as NotesTab)}>
+              <TabsList className="grid w-full max-w-[320px] grid-cols-2">
+                <TabsTrigger value="notes">笔记</TabsTrigger>
+                <TabsTrigger value="bookmarks">收藏</TabsTrigger>
+              </TabsList>
 
-          <div className="tabs" style={{ marginTop: 16 }}>
-            <button className={tab === "notes" ? "tab active" : "tab"} type="button" onClick={() => void switchTab("notes")}>
-              笔记
-            </button>
-            <button className={tab === "bookmarks" ? "tab active" : "tab"} type="button" onClick={() => void switchTab("bookmarks")}>
-              收藏
-            </button>
-          </div>
+              <TabsContent value="notes" className="space-y-4">
+                <form className="grid gap-2 md:grid-cols-[1fr_180px_180px_auto]" onSubmit={onSearch}>
+                  <Input
+                    placeholder="按标题、链接、心得搜索"
+                    value={keyword}
+                    onChange={(e) => setKeyword(e.target.value)}
+                  />
+                  <select className={SELECT_CLASS} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
+                    <option value="">全部状态</option>
+                    <option value="pending">待分析</option>
+                    <option value="running">分析中</option>
+                    <option value="succeeded">成功</option>
+                    <option value="failed">失败</option>
+                  </select>
+                  <select
+                    className={SELECT_CLASS}
+                    value={visibilityFilter}
+                    onChange={(e) => setVisibilityFilter(e.target.value as VisibilityFilter)}
+                  >
+                    <option value="">全部可见性</option>
+                    <option value="private">私有</option>
+                    <option value="public">公开</option>
+                  </select>
+                  <Button variant="secondary" type="submit">
+                    查询
+                  </Button>
+                </form>
 
-          {tab === "notes" && (
-            <form className="row" onSubmit={onSearch}>
-              <input
-                style={{ flex: 1, minWidth: 220 }}
-                placeholder="按标题、链接、心得搜索"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-              />
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
-                <option value="">全部状态</option>
-                <option value="pending">待分析</option>
-                <option value="running">分析中</option>
-                <option value="succeeded">成功</option>
-                <option value="failed">失败</option>
-              </select>
-              <select value={visibilityFilter} onChange={(e) => setVisibilityFilter(e.target.value as VisibilityFilter)}>
-                <option value="">全部可见性</option>
-                <option value="private">私有</option>
-                <option value="public">公开</option>
-              </select>
-              <button className="btn secondary" type="submit">
-                查询
-              </button>
-            </form>
-          )}
+                {loading && (
+                  <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">加载中...</div>
+                )}
+                {!loading && notes.length === 0 && (
+                  <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">暂无笔记</div>
+                )}
 
-          {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
-          {loading && <div className="helper" style={{ marginTop: 12 }}>加载中...</div>}
-
-          {!loading && tab === "notes" && notes.length === 0 && <div className="helper" style={{ marginTop: 12 }}>暂无笔记</div>}
-          {!loading && tab === "bookmarks" && bookmarks.length === 0 && <div className="helper" style={{ marginTop: 12 }}>暂无收藏</div>}
-
-          {tab === "notes" && (
-            <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-              {notes.map((note) => (
-                <article key={note.id} className="note-item">
-                  <div>
-                    <h3 style={{ margin: "0 0 6px" }}>{note.source_title || note.source_url}</h3>
-                    <div className="helper" style={{ fontSize: 13 }}>
-                      {note.source_domain} · 发布时间 {formatPublishedAt(note)}
-                    </div>
-                    {!!note.tags.length && (
-                      <div className="row" style={{ marginTop: 8 }}>
-                        {note.tags.map((item) => (
-                          <span key={`${note.id}-${item}`} className="pill">
-                            #{item}
-                          </span>
-                        ))}
+                <div className="grid gap-3">
+                  {notes.map((note) => (
+                    <article key={note.id} className="space-y-3 rounded-lg border border-border bg-white p-4">
+                      <div className="space-y-2">
+                        <h3 className="text-base font-semibold text-foreground">{note.source_title || note.source_url}</h3>
+                        <div className="text-sm text-muted-foreground">
+                          {note.source_domain} · 发布时间 {formatPublishedAt(note)}
+                        </div>
+                        {!!note.tags.length && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {note.tags.map((item) => (
+                              <Badge key={`${note.id}-${item}`} variant="muted">
+                                #{item}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                        {note.summary_excerpt && <p className="text-sm leading-6 text-muted-foreground">{note.summary_excerpt}</p>}
                       </div>
-                    )}
-                  </div>
-                  <div className="row" style={{ alignItems: "center" }}>
-                    <span className={`pill status-${note.analysis_status}`}>{renderStatus(note.analysis_status)}</span>
-                    <span className="pill">{note.visibility === "public" ? "公开" : "私有"}</span>
-                    <button className="btn secondary" type="button" onClick={() => router.push(`/notes/${note.id}`)}>
-                      查看
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-
-          {tab === "bookmarks" && (
-            <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-              {bookmarks.map((item) => (
-                <article key={`${item.item_type}-${item.id}`} className="note-item">
-                  <div>
-                    <h3 style={{ margin: "0 0 6px" }}>{item.source_title || item.source_url}</h3>
-                    <div className="helper" style={{ fontSize: 13 }}>
-                      {item.creator_name} · {item.source_domain} · 发布时间 {formatPublishedAt(item)}
-                    </div>
-                    {!!item.tags.length && (
-                      <div className="row" style={{ marginTop: 8 }}>
-                        {item.tags.map((tagItem) => (
-                          <span key={`${item.id}-${tagItem}`} className="pill">
-                            #{tagItem}
-                          </span>
-                        ))}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge>{note.bookmark_count} 收藏</Badge>
+                        <Badge>{note.like_count} 点赞</Badge>
+                        <Badge className={statusClassName(note.analysis_status)}>{renderStatus(note.analysis_status)}</Badge>
+                        <Badge variant="secondary">{note.visibility === "public" ? "公开" : "私有"}</Badge>
+                        <Button variant="secondary" size="sm" type="button" onClick={() => router.push(`/notes/${note.id}`)}>
+                          查看
+                        </Button>
                       </div>
-                    )}
-                  </div>
-                  {item.summary_excerpt && <p className="summary-block" style={{ margin: 0 }}>{item.summary_excerpt}</p>}
-                  <div className="row" style={{ alignItems: "center" }}>
-                    <span className="pill">{item.bookmark_count} 收藏</span>
-                    <span className="pill">{item.like_count} 点赞</span>
-                    <button
-                      className="btn secondary"
-                      type="button"
-                      disabled={actingId === `bookmark:${item.item_type}:${item.id}`}
-                      onClick={() => void onToggleBookmark(item)}
-                    >
-                      {item.bookmarked ? "取消收藏" : "收藏"}
-                    </button>
-                    <button className="btn" type="button" onClick={() => openBookmark(item)}>
-                      查看
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+                    </article>
+                  ))}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="bookmarks" className="space-y-4">
+                {loading && (
+                  <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">加载中...</div>
+                )}
+                {!loading && bookmarks.length === 0 && (
+                  <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">暂无收藏</div>
+                )}
+
+                <div className="grid gap-3">
+                  {bookmarks.map((item) => (
+                    <article key={`${item.item_type}-${item.id}`} className="space-y-3 rounded-lg border border-border bg-white p-4">
+                      <div className="space-y-2">
+                        <h3 className="text-base font-semibold text-foreground">{item.source_title || item.source_url}</h3>
+                        <div className="text-sm text-muted-foreground">
+                          {item.creator_name} · {item.source_domain} · 发布时间 {formatPublishedAt(item)}
+                        </div>
+                        {!!item.tags.length && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.tags.map((tagItem) => (
+                              <Badge key={`${item.id}-${tagItem}`} variant="muted">
+                                #{tagItem}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                        {item.summary_excerpt && <p className="text-sm leading-6 text-muted-foreground">{item.summary_excerpt}</p>}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge>{item.bookmark_count} 收藏</Badge>
+                        <Badge>{item.like_count} 点赞</Badge>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          type="button"
+                          disabled={actingId === `bookmark:${item.item_type}:${item.id}`}
+                          onClick={() => void onToggleBookmark(item)}
+                        >
+                          {item.bookmarked ? "取消收藏" : "收藏"}
+                        </Button>
+                        <Button size="sm" type="button" onClick={() => openBookmark(item)}>
+                          查看
+                        </Button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
@@ -254,4 +275,11 @@ function renderStatus(status: NoteListItem["analysis_status"]): string {
   if (status === "running") return "分析中";
   if (status === "succeeded") return "成功";
   return "失败";
+}
+
+function statusClassName(status: NoteListItem["analysis_status"]): string {
+  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "running") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-red-200 bg-red-50 text-red-700";
 }

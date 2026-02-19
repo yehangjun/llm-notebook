@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
+import { buttonVariants, Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
 import { apiRequest } from "../../lib/api";
 
 type GenericResponse = { message: string };
@@ -32,27 +35,33 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <main className="page">
-      <div className="container" style={{ maxWidth: 560 }}>
-        <section className="card">
-          <h1 style={{ marginTop: 0 }}>忘记密码</h1>
-          <form className="form-stack" onSubmit={onSubmit}>
-            <div className="field">
-              <label htmlFor="email">邮箱</label>
-              <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-            {message && <div className="success">{message}</div>}
-            {error && <div className="error">{error}</div>}
-            <div className="row">
-              <button className="btn" type="submit" disabled={loading}>
-                {loading ? "提交中..." : "发送重置邮件"}
-              </button>
-              <Link className="btn secondary" href="/auth">
-                返回登录
-              </Link>
-            </div>
-          </form>
-        </section>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[640px]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">忘记密码</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={onSubmit}>
+              <div className="space-y-2">
+                <label htmlFor="email" className="text-sm font-medium text-foreground">
+                  邮箱
+                </label>
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              </div>
+              {message && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div>}
+              {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={loading}>
+                  {loading ? "提交中..." : "发送重置邮件"}
+                </Button>
+                <Link className={buttonVariants({ variant: "secondary" })} href="/auth">
+                  返回登录
+                </Link>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );

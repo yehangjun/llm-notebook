@@ -2,12 +2,14 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.note import Note
 from app.models.note_ai_summary import NoteAISummary
 from app.models.user import User
+from app.models.user_bookmark import UserBookmark
+from app.models.user_like import UserLike
 
 
 class NoteRepository:
@@ -149,6 +151,35 @@ class NoteRepository:
 
         stmt = stmt.order_by(Note.updated_at.desc()).offset(offset).limit(limit)
         return list(self.db.scalars(stmt))
+
+    def get_note_interaction_stats(self, note_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict[str, int]]:
+        if not note_ids:
+            return {}
+
+        stats: dict[uuid.UUID, dict[str, int]] = {
+            note_id: {"like_count": 0, "bookmark_count": 0}
+            for note_id in note_ids
+        }
+
+        like_stmt = (
+            select(UserLike.note_id, func.count(UserLike.id))
+            .where(UserLike.note_id.in_(note_ids))
+            .group_by(UserLike.note_id)
+        )
+        for note_id, count in self.db.execute(like_stmt):
+            if note_id is not None:
+                stats[note_id]["like_count"] = int(count)
+
+        bookmark_stmt = (
+            select(UserBookmark.note_id, func.count(UserBookmark.id))
+            .where(UserBookmark.note_id.in_(note_ids))
+            .group_by(UserBookmark.note_id)
+        )
+        for note_id, count in self.db.execute(bookmark_stmt):
+            if note_id is not None:
+                stats[note_id]["bookmark_count"] = int(count)
+
+        return stats
 
     def save(self, note: Note) -> Note:
         self.db.add(note)

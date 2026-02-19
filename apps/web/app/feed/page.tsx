@@ -3,6 +3,11 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { apiRequest } from "../../lib/api";
 import { clearAuth, UserPublic } from "../../lib/auth";
 import { FeedItem, FeedListResponse } from "../../lib/feed";
@@ -150,103 +155,105 @@ export default function FeedPage() {
   }
 
   return (
-    <main className="page">
-      <div className="container">
-        <section className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h1 style={{ margin: 0 }}>广场信息流</h1>
-            <button className="btn secondary" type="button" onClick={() => router.push("/notes")}>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[1080px]">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <CardTitle className="text-2xl">广场信息流</CardTitle>
+            <Button variant="secondary" type="button" onClick={() => router.push("/notes")}>
               我的笔记
-            </button>
-          </div>
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Tabs value={scope} onValueChange={(value) => void switchScope(value as FeedScope)}>
+              <TabsList className="grid w-full max-w-[320px] grid-cols-2">
+                <TabsTrigger value="following">关注</TabsTrigger>
+                <TabsTrigger value="unfollowed">未关注</TabsTrigger>
+              </TabsList>
+            </Tabs>
 
-          <div className="tabs" style={{ marginTop: 16 }}>
-            <button className={scope === "following" ? "tab active" : "tab"} type="button" onClick={() => void switchScope("following")}>
-              关注
-            </button>
-            <button className={scope === "unfollowed" ? "tab active" : "tab"} type="button" onClick={() => void switchScope("unfollowed")}>
-              未关注
-            </button>
-          </div>
+            <form className="grid gap-2 md:grid-cols-[1fr_1fr_auto]" onSubmit={onSearch}>
+              <Input
+                placeholder="关键词（标题/链接/创作者/摘要）"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+              />
+              <Input
+                placeholder="按标签筛选（例如：#openai 或 #大模型）"
+                value={tag}
+                onChange={(e) => setTag(e.target.value)}
+              />
+              <Button variant="secondary" type="submit">
+                筛选
+              </Button>
+            </form>
 
-          <form className="row" onSubmit={onSearch}>
-            <input
-              style={{ flex: 1, minWidth: 220 }}
-              placeholder="关键词（标题/链接/创作者/摘要）"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
-            <input
-              style={{ flex: 1, minWidth: 220 }}
-              placeholder="按标签筛选（例如：#openai 或 #大模型）"
-              value={tag}
-              onChange={(e) => setTag(e.target.value)}
-            />
-            <button className="btn secondary" type="submit">
-              筛选
-            </button>
-          </form>
+            {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+            {loading && <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">加载中...</div>}
+            {!loading && items.length === 0 && (
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">当前没有内容</div>
+            )}
 
-          {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
-          {loading && <div className="helper" style={{ marginTop: 12 }}>加载中...</div>}
-          {!loading && items.length === 0 && <div className="helper" style={{ marginTop: 12 }}>当前没有内容</div>}
-
-          <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-            {items.map((item) => (
-              <article key={`${item.item_type}-${item.id}`} className="note-item">
-                <div>
-                  <h3 style={{ margin: "0 0 6px" }}>{item.source_title || item.source_url}</h3>
-                  <div className="helper" style={{ fontSize: 13 }}>
-                    {item.creator_name} · {item.source_domain} · 发布时间 {formatPublishedAt(item)}
-                  </div>
-                  {!!item.tags.length && (
-                    <div className="row" style={{ marginTop: 8 }}>
-                      {item.tags.map((tagItem) => (
-                        <span key={`${item.id}-${tagItem}`} className="pill">
-                          #{tagItem}
-                        </span>
-                      ))}
+            <div className="grid gap-3">
+              {items.map((item) => (
+                <article key={`${item.item_type}-${item.id}`} className="space-y-3 rounded-lg border border-border bg-white p-4">
+                  <div className="space-y-2">
+                    <h3 className="text-base font-semibold text-foreground">{item.source_title || item.source_url}</h3>
+                    <div className="text-sm text-muted-foreground">
+                      {item.creator_name} · {item.source_domain} · 发布时间 {formatPublishedAt(item)}
                     </div>
-                  )}
-                </div>
+                    {!!item.tags.length && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.tags.map((tagItem) => (
+                          <Badge key={`${item.id}-${tagItem}`} variant="muted">
+                            #{tagItem}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-                {item.summary_excerpt && <p className="summary-block" style={{ margin: 0 }}>{item.summary_excerpt}</p>}
+                  {item.summary_excerpt && <p className="text-sm leading-6 text-muted-foreground">{item.summary_excerpt}</p>}
 
-                <div className="row" style={{ alignItems: "center" }}>
-                  <span className="pill">{item.bookmark_count} 收藏</span>
-                  <span className="pill">{item.like_count} 点赞</span>
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    disabled={actingId === `follow:${item.creator_kind}:${item.creator_id}`}
-                    onClick={() => void onToggleFollow(item)}
-                  >
-                    {item.following ? "取消关注" : "关注"}
-                  </button>
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    disabled={actingId === `bookmark:${item.item_type}:${item.id}`}
-                    onClick={() => void onToggleBookmark(item)}
-                  >
-                    {item.bookmarked ? "取消收藏" : "收藏"}
-                  </button>
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    disabled={actingId === `like:${item.item_type}:${item.id}`}
-                    onClick={() => void onToggleLike(item)}
-                  >
-                    {item.liked ? "取消点赞" : "点赞"}
-                  </button>
-                  <button className="btn" type="button" onClick={() => openDetail(item)}>
-                    查看
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge>{item.bookmark_count} 收藏</Badge>
+                    <Badge>{item.like_count} 点赞</Badge>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      disabled={actingId === `follow:${item.creator_kind}:${item.creator_id}`}
+                      onClick={() => void onToggleFollow(item)}
+                    >
+                      {item.following ? "取消关注" : "关注"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      disabled={actingId === `bookmark:${item.item_type}:${item.id}`}
+                      onClick={() => void onToggleBookmark(item)}
+                    >
+                      {item.bookmarked ? "取消收藏" : "收藏"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      disabled={actingId === `like:${item.item_type}:${item.id}`}
+                      onClick={() => void onToggleLike(item)}
+                    >
+                      {item.liked ? "取消点赞" : "点赞"}
+                    </Button>
+                    <Button size="sm" type="button" onClick={() => openDetail(item)}>
+                      查看
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );

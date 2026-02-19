@@ -146,14 +146,19 @@ class NoteService:
             offset=offset,
             limit=limit,
         )
+        note_ids = [note.id for note in notes]
+        interaction_stats = self.note_repo.get_note_interaction_stats(note_ids)
         note_items: list[NoteListItem] = []
         for note in notes:
             latest_summary = self.note_repo.get_latest_summary(note.id)
+            stats = interaction_stats.get(note.id, {"like_count": 0, "bookmark_count": 0})
             note_items.append(
                 self._build_note_list_item(
                     note=note,
                     latest_summary=latest_summary,
                     ui_language=user.ui_language,
+                    like_count=stats["like_count"],
+                    bookmark_count=stats["bookmark_count"],
                 )
             )
         return NoteListResponse(notes=note_items)
@@ -336,6 +341,8 @@ class NoteService:
         note: Note,
         latest_summary: NoteAISummary | None,
         ui_language: str | None = None,
+        like_count: int,
+        bookmark_count: int,
     ) -> NoteListItem:
         prefer_zh = self._prefer_zh_ui(ui_language)
         return NoteListItem(
@@ -345,6 +352,13 @@ class NoteService:
             source_title=self._display_title_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
             published_at=latest_summary.published_at if latest_summary else None,
             tags=self._display_tags_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
+            summary_excerpt=self._build_note_summary_excerpt(
+                note=note,
+                latest_summary=latest_summary,
+                ui_language=ui_language,
+            ),
+            like_count=like_count,
+            bookmark_count=bookmark_count,
             visibility=note.visibility,
             analysis_status=note.analysis_status,
             updated_at=note.updated_at,
@@ -454,6 +468,36 @@ class NoteService:
         if normalized_note_tags and normalized_note_tags == normalized_summary_original_tags:
             return summary_display_tags
         return note_tags
+
+    def _build_note_summary_excerpt(
+        self,
+        *,
+        note: Note,
+        latest_summary: NoteAISummary | None,
+        ui_language: str | None,
+    ) -> str | None:
+        summary_public = self._build_summary_public(latest_summary, ui_language=ui_language) if latest_summary else None
+        ai_text = summary_public.summary_text if summary_public else None
+        note_text = self._normalize_excerpt_text(note.note_body_md)
+
+        if ai_text and note_text:
+            return self._shorten_text(f"AI: {ai_text} | 心得: {note_text}", max_length=220)
+        if ai_text:
+            return self._shorten_text(ai_text, max_length=220)
+        if note_text:
+            return self._shorten_text(note_text, max_length=220)
+        return None
+
+    def _normalize_excerpt_text(self, raw_text: str | None) -> str:
+        if not raw_text:
+            return ""
+        text = re.sub(r"\s+", " ", raw_text).strip()
+        return text
+
+    def _shorten_text(self, value: str, *, max_length: int) -> str:
+        if len(value) <= max_length:
+            return value
+        return f"{value[: max_length - 3].rstrip()}..."
 
     def _analyze_source(self, note: Note) -> SourceAnalysis:
         source_title, content, inferred_published_at = self._fetch_source_content(note.source_url)

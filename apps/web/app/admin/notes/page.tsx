@@ -3,9 +3,13 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import AdminTabs from "../../../components/AdminTabs";
+import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
+import { Input } from "../../../components/ui/input";
 import { apiRequest } from "../../../lib/api";
 import { clearAuth, getStoredUser, setStoredUser, UserPublic } from "../../../lib/auth";
-import AdminTabs from "../../../components/AdminTabs";
 
 type AdminNoteItem = {
   id: string;
@@ -41,6 +45,9 @@ const DEFAULT_QUERY: NotesQueryState = {
   visibility: "",
   deleted: "all",
 };
+
+const SELECT_CLASS =
+  "h-10 rounded-md border border-border bg-white px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20";
 
 export default function AdminNotesPage() {
   const router = useRouter();
@@ -151,9 +158,11 @@ export default function AdminNotesPage() {
 
   if (loading && notes.length === 0) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">加载中...</section>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[1080px]">
+          <Card>
+            <CardContent className="py-8 text-sm text-muted-foreground">加载中...</CardContent>
+          </Card>
         </div>
       </main>
     );
@@ -161,132 +170,141 @@ export default function AdminNotesPage() {
 
   if (!canRender) {
     return (
-      <main className="page">
-        <div className="container">
-          <section className="card">
-            <h1 style={{ marginTop: 0 }}>管理后台</h1>
-            <div className="error">{error || "无权限"}</div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn secondary" type="button" onClick={() => router.push("/")}>
+      <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+        <div className="mx-auto w-full max-w-[1080px]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-2xl">管理后台</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error || "无权限"}</div>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/")}>
                 返回首页
-              </button>
-            </div>
-          </section>
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="page">
-      <div className="container">
-        <section className="card">
-          <h1 style={{ margin: 0 }}>管理后台 · 笔记管理</h1>
-          <AdminTabs />
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[1080px]">
+        <Card>
+          <CardHeader className="space-y-3">
+            <CardTitle className="text-2xl">管理后台 · 笔记管理</CardTitle>
+            <AdminTabs />
+          </CardHeader>
 
-          <form className="row" onSubmit={onSearch} style={{ marginTop: 16 }}>
-            <input
-              style={{ flex: 1, minWidth: 200 }}
-              placeholder="按用户ID、标题、链接、心得搜索"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
-            <input
-              style={{ minWidth: 160 }}
-              placeholder="所属用户ID"
-              value={ownerUserId}
-              onChange={(e) => setOwnerUserId(e.target.value)}
-            />
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as AdminStatusFilter)}>
-              <option value="">全部状态</option>
-              <option value="pending">待分析</option>
-              <option value="running">分析中</option>
-              <option value="succeeded">成功</option>
-              <option value="failed">失败</option>
-            </select>
-            <select
-              value={visibilityFilter}
-              onChange={(e) => setVisibilityFilter(e.target.value as AdminVisibilityFilter)}
-            >
-              <option value="">全部可见性</option>
-              <option value="private">私有</option>
-              <option value="public">公开</option>
-            </select>
-            <select value={deletedFilter} onChange={(e) => setDeletedFilter(e.target.value as AdminDeletedFilter)}>
-              <option value="all">全部删除状态</option>
-              <option value="active">未删除</option>
-              <option value="deleted">已删除</option>
-            </select>
-            <button className="btn" type="submit">
-              搜索
-            </button>
-          </form>
+          <CardContent className="space-y-4">
+            <form className="grid gap-2 md:grid-cols-[1fr_180px_150px_150px_150px_auto]" onSubmit={onSearch}>
+              <Input
+                placeholder="按用户ID、标题、链接、心得搜索"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+              />
+              <Input
+                placeholder="所属用户ID"
+                value={ownerUserId}
+                onChange={(e) => setOwnerUserId(e.target.value)}
+              />
+              <select className={SELECT_CLASS} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as AdminStatusFilter)}>
+                <option value="">全部状态</option>
+                <option value="pending">待分析</option>
+                <option value="running">分析中</option>
+                <option value="succeeded">成功</option>
+                <option value="failed">失败</option>
+              </select>
+              <select
+                className={SELECT_CLASS}
+                value={visibilityFilter}
+                onChange={(e) => setVisibilityFilter(e.target.value as AdminVisibilityFilter)}
+              >
+                <option value="">全部可见性</option>
+                <option value="private">私有</option>
+                <option value="public">公开</option>
+              </select>
+              <select className={SELECT_CLASS} value={deletedFilter} onChange={(e) => setDeletedFilter(e.target.value as AdminDeletedFilter)}>
+                <option value="all">全部删除状态</option>
+                <option value="active">未删除</option>
+                <option value="deleted">已删除</option>
+              </select>
+              <Button type="submit">搜索</Button>
+            </form>
 
-          {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
-          {success && <div className="success" style={{ marginTop: 12 }}>{success}</div>}
+            {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+            {success && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div>}
 
-          <div style={{ overflowX: "auto", marginTop: 16 }}>
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>笔记ID</th>
-                  <th>所属用户</th>
-                  <th>来源</th>
-                  <th>状态</th>
-                  <th>可见性</th>
-                  <th>删除状态</th>
-                  <th>更新时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {notes.map((note) => (
-                  <tr key={note.id}>
-                    <td>{note.id}</td>
-                    <td>
-                      {note.owner_user_id}
-                      {note.owner_is_deleted ? "（用户已删除）" : ""}
-                    </td>
-                    <td>
-                      <div style={{ maxWidth: 420 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 4 }}>{note.source_title || "(无标题)"}</div>
-                        <a href={note.source_url} target="_blank" rel="noreferrer">
-                          {note.source_url}
-                        </a>
-                      </div>
-                    </td>
-                    <td>{renderStatus(note.analysis_status)}</td>
-                    <td>{note.visibility === "public" ? "公开" : "私有"}</td>
-                    <td>{note.is_deleted ? `已删除${note.deleted_at ? `（${new Date(note.deleted_at).toLocaleString()}）` : ""}` : "未删除"}</td>
-                    <td>{new Date(note.updated_at).toLocaleString()}</td>
-                    <td>
-                      {!note.is_deleted && (
-                        <button
-                          className="btn secondary"
-                          type="button"
-                          onClick={() => onDeleteNote(note.id)}
-                          disabled={actingNoteId === note.id}
-                        >
-                          {actingNoteId === note.id ? "处理中..." : "删除"}
-                        </button>
-                      )}
-                      {note.is_deleted && (
-                        <button
-                          className="btn secondary"
-                          type="button"
-                          onClick={() => onRestoreNote(note.id)}
-                          disabled={actingNoteId === note.id || note.owner_is_deleted}
-                        >
-                          {actingNoteId === note.id ? "处理中..." : "恢复"}
-                        </button>
-                      )}
-                    </td>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[1200px] border-collapse text-sm">
+                <thead className="bg-muted/40 text-muted-foreground">
+                  <tr>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">笔记ID</th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">所属用户</th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">来源</th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">状态</th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">可见性</th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">删除状态</th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">更新时间</th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody>
+                  {notes.map((note) => (
+                    <tr key={note.id} className="odd:bg-white even:bg-muted/20">
+                      <td className="border-b border-border px-3 py-2">{note.id}</td>
+                      <td className="border-b border-border px-3 py-2">
+                        {note.owner_user_id}
+                        {note.owner_is_deleted ? "（用户已删除）" : ""}
+                      </td>
+                      <td className="border-b border-border px-3 py-2">
+                        <div className="max-w-[420px] space-y-1">
+                          <div className="font-medium text-foreground">{note.source_title || "(无标题)"}</div>
+                          <a className="break-all text-primary underline-offset-4 hover:underline" href={note.source_url} target="_blank" rel="noreferrer">
+                            {note.source_url}
+                          </a>
+                        </div>
+                      </td>
+                      <td className="border-b border-border px-3 py-2">
+                        <Badge className={statusClassName(note.analysis_status)}>{renderStatus(note.analysis_status)}</Badge>
+                      </td>
+                      <td className="border-b border-border px-3 py-2">{note.visibility === "public" ? "公开" : "私有"}</td>
+                      <td className="border-b border-border px-3 py-2">
+                        {note.is_deleted ? `已删除${note.deleted_at ? `（${new Date(note.deleted_at).toLocaleString()}）` : ""}` : "未删除"}
+                      </td>
+                      <td className="border-b border-border px-3 py-2">{new Date(note.updated_at).toLocaleString()}</td>
+                      <td className="border-b border-border px-3 py-2">
+                        {!note.is_deleted && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            type="button"
+                            onClick={() => onDeleteNote(note.id)}
+                            disabled={actingNoteId === note.id}
+                          >
+                            {actingNoteId === note.id ? "处理中..." : "删除"}
+                          </Button>
+                        )}
+                        {note.is_deleted && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            type="button"
+                            onClick={() => onRestoreNote(note.id)}
+                            disabled={actingNoteId === note.id || note.owner_is_deleted}
+                          >
+                            {actingNoteId === note.id ? "处理中..." : "恢复"}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
@@ -297,4 +315,11 @@ function renderStatus(status: AdminNoteItem["analysis_status"]): string {
   if (status === "running") return "分析中";
   if (status === "succeeded") return "成功";
   return "失败";
+}
+
+function statusClassName(status: AdminNoteItem["analysis_status"]): string {
+  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "running") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-red-200 bg-red-50 text-red-700";
 }

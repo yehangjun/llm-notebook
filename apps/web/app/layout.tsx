@@ -16,7 +16,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body>
         <GlobalNav />
-        <div className="app-content">{children}</div>
+        <div className="pt-[84px]">{children}</div>
       </body>
     </html>
   );

@@ -341,7 +341,9 @@ Redis Key：
 
 ### 7.6 学习笔记页交互
 - 列表页（`/notes`）：
-  - 展示来源标题、域名、AI 状态、更新时间、可见性
+  - 展示来源标题、发布时间、收藏/点赞计数、标签、极简摘要
+  - 笔记 tab 额外展示 AI 状态、可见性
+  - 收藏 tab 额外展示创作者
   - 支持状态筛选（`running/succeeded/failed`）与关键词搜索
 - 新建页（`/notes/new`）：
   - 仅一个核心输入：外部链接
@@ -357,9 +359,44 @@ Redis Key：
   - 不显示编辑与重试按钮
 
 ### 7.7 视觉与导航风格
-- 页面设计参考 `design/*.html`。
-- 风格基调：极简主义，参考 NotebookLM、Medium、Notion。
+- 前端 UI 基线：`Tailwind CSS + shadcn/ui`。
+- 风格基调：极简 SaaS 风。
 - 全站页面顶部保留全局导航条，统一品牌入口与关键导航。
+- 导航三段布局固定：
+  - 左：品牌入口 + 全局搜索
+  - 中：笔记 / 广场（全局居中）
+  - 右：写笔记图标 / 通知图标 / 账号入口
+
+### 7.8 组件映射与设计 Token 约束
+
+组件映射（首批）：
+- `GlobalNav`：`Input`（搜索）、`Button`（写笔记/通知/账号）、`Tabs`（中区导航）
+- 列表卡片（笔记/广场）：`Card` + `Badge` + `Button`
+- 认证页：`Tabs`（登录/注册）+ `Input` + `Button`
+- 管理页：`Tabs`（模块切换）+ `Table`（用户/笔记/聚合源）
+
+设计 Token（语义层）：
+- 颜色：
+  - `--background`：页面背景
+  - `--foreground`：主文本
+  - `--muted` / `--muted-foreground`：次级文本与弱背景
+  - `--border`：分割线/输入框边线
+  - `--primary` / `--primary-foreground`：主操作按钮
+  - `--destructive` / `--destructive-foreground`：危险操作
+- 圆角：
+  - `--radius-sm` = 8px
+  - `--radius-md` = 12px
+  - `--radius-lg` = 16px
+- 阴影：
+  - `--shadow-sm`：轻悬浮（列表项 hover）
+  - `--shadow-md`：主卡片
+- 间距：
+  - 采用 `4px` 基础栅格（`4/8/12/16/24/32`）
+
+交互约束：
+- 所有状态型信息使用统一 `Badge`（`pending/running/succeeded/failed`）。
+- 主次按钮层级固定：`primary > secondary > ghost`，禁止同区块出现多个 primary。
+- 列表摘要限制为单段短文，建议最大 220 字符，超出截断。
 
 ## 8. 邮件与通知
 
@@ -428,7 +465,7 @@ Redis Key：
 - 支持解析失败或 AI 失败后重试分析
 - 预设信息源可自动生成聚合条目，且可复用同一内容分析链路
 - 内容分析服务接入 OpenAI / Gemini / Claude 风格大模型 API
-- 首页与核心页面风格对齐 `design/homepage.html`，并具备全局导航
+- 首页与核心页面使用 `Tailwind CSS + shadcn/ui` 实现极简 SaaS 风，并具备全局导航
 
 ## 13. 内容分析详细设计（本轮新增）
 

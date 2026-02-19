@@ -4,11 +4,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import { buttonVariants, Button } from "../../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { apiRequest } from "../../lib/api";
 import { AuthResponse, saveAuth } from "../../lib/auth";
 
 type Tab = "login" | "register";
 type GenericResponse = { message: string };
+const SELECT_CLASS =
+  "flex h-10 w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -113,137 +119,164 @@ export default function AuthPage() {
   }
 
   return (
-    <main className="page">
-      <div className="container" style={{ maxWidth: 560 }}>
-        <section className="card">
-          <h1 style={{ marginTop: 0 }}>登录与注册</h1>
-          <div className="tabs">
-            <button
-              className={`tab ${tab === "login" ? "active" : ""}`}
-              onClick={() => setTab("login")}
-              type="button"
-            >
-              登录
-            </button>
-            <button
-              className={`tab ${tab === "register" ? "active" : ""}`}
-              onClick={() => setTab("register")}
-              type="button"
-            >
-              注册
-            </button>
-          </div>
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[640px]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">登录与注册</CardTitle>
+            <CardDescription>使用 ID 或邮箱登录，首次使用请先注册账号。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)} className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="login">登录</TabsTrigger>
+                <TabsTrigger value="register">注册</TabsTrigger>
+              </TabsList>
 
-          {tab === "login" ? (
-            <form className="form-stack" onSubmit={handleLogin}>
-              <div className="field">
-                <label htmlFor="principal">ID 或邮箱</label>
-                <input
-                  id="principal"
-                  value={loginPrincipal}
-                  onChange={(e) => setLoginPrincipal(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="login-password">密码</label>
-                <input
-                  id="login-password"
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  required
-                />
-              </div>
-              {error && <div className="error">{error}</div>}
-              <div className="row">
-                <button className="btn" type="submit" disabled={loading}>
-                  {loading ? "提交中..." : "登录"}
-                </button>
-                <Link className="btn secondary" href="/forgot-password">
-                  忘记密码
-                </Link>
-              </div>
-            </form>
-          ) : (
-            <form className="form-stack" onSubmit={handleRegister}>
-              <div className="field">
-                <label htmlFor="user-id">ID</label>
-                <input id="user-id" value={userId} onChange={(e) => setUserId(e.target.value)} required />
-              </div>
-              <div className="field">
-                <label htmlFor="email">邮箱</label>
-                <div className="row">
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    style={{ flex: 1, minWidth: 220 }}
-                    required
-                  />
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    onClick={handleSendEmailCode}
-                    disabled={sendCodeLoading || sendCodeCountdown > 0}
-                  >
-                    {sendCodeLoading
-                      ? "发送中..."
-                      : sendCodeCountdown > 0
-                        ? `${sendCodeCountdown}s 后重试`
-                        : "发送验证码"}
-                  </button>
-                </div>
-              </div>
-              <div className="field">
-                <label htmlFor="email-code">邮箱验证码</label>
-                <input
-                  id="email-code"
-                  value={emailCode}
-                  onChange={(e) => setEmailCode(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="password">密码</label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="password-confirm">确认密码</label>
-                <input
-                  id="password-confirm"
-                  type="password"
-                  value={passwordConfirm}
-                  onChange={(e) => setPasswordConfirm(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="nickname">昵称（可选）</label>
-                <input id="nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} />
-              </div>
-              <div className="field">
-                <label htmlFor="language">界面语言</label>
-                <select id="language" value={language} onChange={(e) => setLanguage(e.target.value)}>
-                  <option value="zh-CN">中文</option>
-                  <option value="en-US">English</option>
-                </select>
-              </div>
-              {registerMessage && <div className="success">{registerMessage}</div>}
-              {error && <div className="error">{error}</div>}
-              <button className="btn" type="submit" disabled={loading}>
-                {loading ? "提交中..." : "注册"}
-              </button>
-            </form>
-          )}
-        </section>
+              <TabsContent value="login">
+                <form className="space-y-4" onSubmit={handleLogin}>
+                  <div className="space-y-2">
+                    <label htmlFor="principal" className="text-sm font-medium text-foreground">
+                      ID 或邮箱
+                    </label>
+                    <Input
+                      id="principal"
+                      value={loginPrincipal}
+                      onChange={(e) => setLoginPrincipal(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="login-password" className="text-sm font-medium text-foreground">
+                      密码
+                    </label>
+                    <Input
+                      id="login-password"
+                      type="password"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="submit" disabled={loading}>
+                      {loading ? "提交中..." : "登录"}
+                    </Button>
+                    <Link className={buttonVariants({ variant: "secondary" })} href="/forgot-password">
+                      忘记密码
+                    </Link>
+                  </div>
+                </form>
+              </TabsContent>
+
+              <TabsContent value="register">
+                <form className="space-y-4" onSubmit={handleRegister}>
+                  <div className="space-y-2">
+                    <label htmlFor="user-id" className="text-sm font-medium text-foreground">
+                      ID
+                    </label>
+                    <Input id="user-id" value={userId} onChange={(e) => setUserId(e.target.value)} required />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="email" className="text-sm font-medium text-foreground">
+                      邮箱
+                    </label>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        id="email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="sm:flex-1"
+                        required
+                      />
+                      <Button
+                        variant="secondary"
+                        type="button"
+                        onClick={handleSendEmailCode}
+                        disabled={sendCodeLoading || sendCodeCountdown > 0}
+                      >
+                        {sendCodeLoading
+                          ? "发送中..."
+                          : sendCodeCountdown > 0
+                            ? `${sendCodeCountdown}s 后重试`
+                            : "发送验证码"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="email-code" className="text-sm font-medium text-foreground">
+                      邮箱验证码
+                    </label>
+                    <Input
+                      id="email-code"
+                      value={emailCode}
+                      onChange={(e) => setEmailCode(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="password" className="text-sm font-medium text-foreground">
+                      密码
+                    </label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="password-confirm" className="text-sm font-medium text-foreground">
+                      确认密码
+                    </label>
+                    <Input
+                      id="password-confirm"
+                      type="password"
+                      value={passwordConfirm}
+                      onChange={(e) => setPasswordConfirm(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="nickname" className="text-sm font-medium text-foreground">
+                      昵称（可选）
+                    </label>
+                    <Input id="nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="language" className="text-sm font-medium text-foreground">
+                      界面语言
+                    </label>
+                    <select id="language" className={SELECT_CLASS} value={language} onChange={(e) => setLanguage(e.target.value)}>
+                      <option value="zh-CN">中文</option>
+                      <option value="en-US">English</option>
+                    </select>
+                  </div>
+
+                  {registerMessage && (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      {registerMessage}
+                    </div>
+                  )}
+                  {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+
+                  <Button type="submit" disabled={loading}>
+                    {loading ? "提交中..." : "注册"}
+                  </Button>
+                </form>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
@@ -253,5 +286,5 @@ function getPostLoginTarget(auth: AuthResponse): string {
   if (auth.user.is_admin) {
     return "/admin";
   }
-  return "/notes";
+  return "/feed";
 }

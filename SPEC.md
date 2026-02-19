@@ -146,8 +146,8 @@
 
 ## 页面与交互设计
 
-风格：极简主义，参考NotebookLM、Medium、Notion等
-参考：design/*.html
+框架：Tailwind + shadcn/ui
+风格：极简 SaaS 风
 
 ### 总体设计
 页面顶部有一个全局导航条，分左中右三个区：
