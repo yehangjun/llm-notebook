@@ -142,7 +142,7 @@ export default function NotesPage() {
           <CardContent className="space-y-4">
             <Tabs value={tab} onValueChange={(value) => void switchTab(value as NotesTab)}>
               <TabsList className="grid w-full max-w-[320px] grid-cols-2">
-                <TabsTrigger value="notes">笔记</TabsTrigger>
+                <TabsTrigger value="notes">我的</TabsTrigger>
                 <TabsTrigger value="bookmarks">收藏</TabsTrigger>
               </TabsList>
 

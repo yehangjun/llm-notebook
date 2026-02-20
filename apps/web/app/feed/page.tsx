@@ -167,7 +167,7 @@ export default function FeedPage() {
           <CardContent className="space-y-4">
             <Tabs value={scope} onValueChange={(value) => void switchScope(value as FeedScope)}>
               <TabsList className="grid w-full max-w-[320px] grid-cols-2">
-                <TabsTrigger value="following">关注</TabsTrigger>
+                <TabsTrigger value="following">已关注</TabsTrigger>
                 <TabsTrigger value="unfollowed">未关注</TabsTrigger>
               </TabsList>
             </Tabs>

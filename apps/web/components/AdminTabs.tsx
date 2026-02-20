@@ -7,9 +7,10 @@ import { buttonVariants } from "./ui/button";
 import { cn } from "../lib/utils";
 
 const ADMIN_TABS = [
-  { href: "/admin/users", label: "用户管理" },
-  { href: "/admin/notes", label: "笔记管理" },
-  { href: "/admin/sources", label: "聚合管理" },
+  { href: "/admin/users", label: "用户" },
+  { href: "/admin/notes", label: "笔记" },
+  { href: "/admin/sources", label: "聚合源" },
+  { href: "/admin/aggregates", label: "聚合条目" },
 ];
 
 export default function AdminTabs() {
