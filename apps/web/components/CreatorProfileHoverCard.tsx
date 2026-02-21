@@ -21,6 +21,8 @@ type CreatorProfileHoverCardProps = {
   className?: string;
 };
 
+const CLOSE_DELAY_MS = 220;
+
 export default function CreatorProfileHoverCard({
   creatorName,
   creatorKind,
@@ -37,12 +39,33 @@ export default function CreatorProfileHoverCard({
   const [actioning, setActioning] = useState(false);
   const [loadError, setLoadError] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const profileKey = `${creatorKind}:${creatorId}`;
+
+  function clearCloseTimer() {
+    if (!closeTimerRef.current) return;
+    clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }
+
+  function openCard() {
+    clearCloseTimer();
+    setOpen(true);
+  }
+
+  function scheduleCloseCard() {
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, CLOSE_DELAY_MS);
+  }
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
       if (!containerRef.current) return;
       if (event.target instanceof Node && !containerRef.current.contains(event.target)) {
+        clearCloseTimer();
         setOpen(false);
       }
     }
@@ -51,7 +74,16 @@ export default function CreatorProfileHoverCard({
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
+  useEffect(
+    () => () => {
+      clearCloseTimer();
+    },
+    [],
+  );
+
   useEffect(() => {
+    clearCloseTimer();
+    setOpen(false);
     setProfile(null);
     setLoadError("");
     setLoading(false);
@@ -105,56 +137,62 @@ export default function CreatorProfileHoverCard({
     <div
       ref={containerRef}
       className={cn("relative inline-flex", className)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={openCard}
+      onMouseLeave={scheduleCloseCard}
     >
       <button
         type="button"
         className="inline-flex items-center text-sm text-foreground underline decoration-border underline-offset-4 hover:text-primary"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          clearCloseTimer();
+          setOpen((prev) => !prev);
+        }}
       >
         {displayName}
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-md border border-border bg-white p-3 shadow-lg">
-          <div className="flex items-center justify-between gap-2">
-            <Badge variant="muted">{creatorKind === "user" ? "笔记创作者" : "聚合信息源"}</Badge>
-            <span className="truncate text-xs text-muted-foreground">
-              {creatorKind === "user" ? `ID: ${creatorId}` : `来源: ${creatorId}`}
-            </span>
-          </div>
-          <p className="mt-2 text-sm font-semibold text-foreground">{displayName}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{resolvedDomain}</p>
-          {resolvedProfile && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {resolvedProfile.follower_count} 关注者 ·{" "}
-              {resolvedProfile.content_count}
-              {creatorKind === "user" ? " 公开笔记" : " 聚合条目"}
-            </p>
-          )}
-          {homepageUrl && (
-            <a
-              className="mt-1 block truncate text-xs text-primary underline underline-offset-4"
-              href={homepageUrl}
-              target="_blank"
-              rel="noreferrer"
+        <>
+          <div className="absolute left-0 top-full z-20 h-2 w-72" />
+          <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-md border border-border bg-white p-3 shadow-lg">
+            <div className="flex items-center justify-between gap-2">
+              <Badge variant="muted">{creatorKind === "user" ? "笔记创作者" : "聚合信息源"}</Badge>
+              <span className="truncate text-xs text-muted-foreground">
+                {creatorKind === "user" ? `ID: ${creatorId}` : `来源: ${creatorId}`}
+              </span>
+            </div>
+            <p className="mt-2 text-sm font-semibold text-foreground">{displayName}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{resolvedDomain}</p>
+            {resolvedProfile && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {resolvedProfile.follower_count} 关注者 ·{" "}
+                {resolvedProfile.content_count}
+                {creatorKind === "user" ? " 公开笔记" : " 聚合条目"}
+              </p>
+            )}
+            {homepageUrl && (
+              <a
+                className="mt-1 block truncate text-xs text-primary underline underline-offset-4"
+                href={homepageUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {homepageUrl}
+              </a>
+            )}
+            {loadError && <p className="mt-2 text-xs text-red-600">{loadError}</p>}
+            {loading && <p className="mt-2 text-xs text-muted-foreground">加载中...</p>}
+            <Button
+              className="mt-3 w-full"
+              variant={resolvedFollowing ? "secondary" : "default"}
+              size="sm"
+              type="button"
+              disabled={disabled || actioning || loading || !canFollow}
+              onClick={() => void onClickFollow()}
             >
-              {homepageUrl}
-            </a>
-          )}
-          {loadError && <p className="mt-2 text-xs text-red-600">{loadError}</p>}
-          {loading && <p className="mt-2 text-xs text-muted-foreground">加载中...</p>}
-          <Button
-            className="mt-3 w-full"
-            variant={resolvedFollowing ? "secondary" : "default"}
-            size="sm"
-            type="button"
-            disabled={disabled || actioning || loading || !canFollow}
-            onClick={() => void onClickFollow()}
-          >
-            {!canFollow ? "不可关注" : resolvedFollowing ? "取消关注" : "关注"}
-          </Button>
-        </div>
+              {!canFollow ? "不可关注" : resolvedFollowing ? "取消关注" : "关注"}
+            </Button>
+          </div>
+        </>
       )}
     </div>
   );

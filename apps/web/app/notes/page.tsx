@@ -30,6 +30,7 @@ const SUMMARY_CLAMP_CLASS =
 export default function NotesPage() {
   const router = useRouter();
   const [tab, setTab] = useState<NotesTab>("notes");
+  const [currentUser, setCurrentUser] = useState<UserPublic | null>(null);
   const [notes, setNotes] = useState<NoteListItem[]>([]);
   const [bookmarks, setBookmarks] = useState<FeedItem[]>([]);
   const [keyword, setKeyword] = useState("");
@@ -41,7 +42,10 @@ export default function NotesPage() {
 
   useEffect(() => {
     apiRequest<UserPublic>("/me", {}, true)
-      .then(() => fetchNotes({ status: "", visibility: "", keyword: "" }))
+      .then(async (user) => {
+        setCurrentUser(user);
+        await fetchNotes({ status: "", visibility: "", keyword: "" });
+      })
       .catch(() => {
         clearAuth();
         router.push("/auth");
@@ -233,8 +237,23 @@ export default function NotesPage() {
                         <button type="button" className={TITLE_CLAMP_CLASS} onClick={() => router.push(`/notes/${note.id}`)}>
                           {note.source_title || note.source_url}
                         </button>
-                        <div className="text-sm text-muted-foreground">
-                          {note.source_domain} · 发布时间 {formatPublishedAt(note)}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                          {currentUser ? (
+                            <CreatorProfileHoverCard
+                              creatorName={currentUser.nickname || currentUser.user_id}
+                              creatorKind="user"
+                              creatorId={currentUser.user_id}
+                              sourceDomain={note.source_domain}
+                              following={false}
+                              onToggleFollow={async () => {}}
+                            />
+                          ) : (
+                            <span>创作者</span>
+                          )}
+                          <span>·</span>
+                          <span>{note.source_domain}</span>
+                          <span>·</span>
+                          <span>发布时间 {formatPublishedAt(note)}</span>
                         </div>
                         {!!note.tags.length && (
                           <div className="flex flex-wrap gap-1.5">
@@ -245,22 +264,21 @@ export default function NotesPage() {
                             ))}
                           </div>
                         )}
-                        <SummaryBlock
-                          title="自动摘要"
-                          content={note.auto_summary_excerpt}
-                          emptyText="暂无自动摘要"
-                        />
-                        <SummaryBlock
-                          title="学习心得"
-                          content={note.note_body_excerpt}
-                          emptyText="暂无学习心得"
-                        />
+                        {!!note.auto_summary_excerpt?.trim() && (
+                          <SummaryBlock variant="auto" content={note.auto_summary_excerpt} />
+                        )}
+                        {!!note.note_body_excerpt?.trim() && (
+                          <SummaryBlock variant="note" content={note.note_body_excerpt} />
+                        )}
                       </div>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
                         <InteractionCountButton kind="bookmark" count={note.bookmark_count} active={false} />
                         <InteractionCountButton kind="like" count={note.like_count} active={false} />
                         <AnalysisStatusBadge status={note.analysis_status} />
                         <Badge variant="secondary">{note.visibility === "public" ? "公开" : "私有"}</Badge>
+                        <Badge variant="secondary" className="ml-auto">
+                          笔记
+                        </Badge>
                       </div>
                     </article>
                   ))}
@@ -283,9 +301,6 @@ export default function NotesPage() {
                       className="flex h-full flex-col justify-between rounded-lg border border-border bg-white p-4"
                     >
                       <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary">{item.item_type === "aggregate" ? "聚合" : "笔记"}</Badge>
-                        </div>
                         <button type="button" className={TITLE_CLAMP_CLASS} onClick={() => openBookmark(item)}>
                           {item.source_title || item.source_url}
                         </button>
@@ -304,16 +319,9 @@ export default function NotesPage() {
                           <span>·</span>
                           <span>发布时间 {formatPublishedAt(item)}</span>
                         </div>
-                        <SummaryBlock
-                          title="自动摘要"
-                          content={item.auto_summary_excerpt}
-                          emptyText="暂无自动摘要"
-                        />
-                        <SummaryBlock
-                          title="学习心得"
-                          content={item.note_body_excerpt}
-                          emptyText={item.item_type === "aggregate" ? "聚合内容暂无学习心得" : "暂无学习心得"}
-                        />
+                        {!!item.auto_summary_excerpt?.trim() && (
+                          <SummaryBlock variant="auto" content={item.auto_summary_excerpt} />
+                        )}
                       </div>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
                         <InteractionCountButton
@@ -330,6 +338,9 @@ export default function NotesPage() {
                           disabled={actingId === `like:${item.item_type}:${item.id}`}
                           onClick={() => void onToggleLike(item)}
                         />
+                        <Badge variant="secondary" className="ml-auto">
+                          {item.item_type === "aggregate" ? "聚合" : "笔记"}
+                        </Badge>
                       </div>
                     </article>
                   ))}
@@ -344,18 +355,19 @@ export default function NotesPage() {
 }
 
 function SummaryBlock({
-  title,
+  variant,
   content,
-  emptyText,
 }: {
-  title: string;
-  content: string | null;
-  emptyText: string;
+  variant: "auto" | "note";
+  content: string;
 }) {
+  const blockClass =
+    variant === "auto"
+      ? "rounded-md border border-sky-100 bg-sky-50/70 p-2.5"
+      : "rounded-md border border-emerald-100 bg-emerald-50/70 p-2.5";
   return (
-    <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
-      <div className="text-xs font-medium text-muted-foreground">{title}</div>
-      <p className={SUMMARY_CLAMP_CLASS}>{content || emptyText}</p>
+    <div className={blockClass}>
+      <p className={SUMMARY_CLAMP_CLASS}>{content}</p>
     </div>
   );
 }

@@ -207,9 +207,6 @@ export default function FeedPage() {
                   className="flex h-full flex-col justify-between rounded-lg border border-border bg-white p-4"
                 >
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">{item.item_type === "aggregate" ? "聚合" : "笔记"}</Badge>
-                    </div>
                     <button type="button" className={TITLE_CLAMP_CLASS} onClick={() => openDetail(item)}>
                       {item.source_title || item.source_url}
                     </button>
@@ -228,16 +225,9 @@ export default function FeedPage() {
                       <span>·</span>
                       <span>发布时间 {formatPublishedAt(item)}</span>
                     </div>
-                    <SummaryBlock
-                      title="自动摘要"
-                      content={item.auto_summary_excerpt}
-                      emptyText="暂无自动摘要"
-                    />
-                    <SummaryBlock
-                      title="学习心得"
-                      content={item.note_body_excerpt}
-                      emptyText={item.item_type === "aggregate" ? "聚合内容暂无学习心得" : "暂无学习心得"}
-                    />
+                    {!!item.auto_summary_excerpt?.trim() && (
+                      <SummaryBlock variant="auto" content={item.auto_summary_excerpt} />
+                    )}
                   </div>
 
                   <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -255,6 +245,9 @@ export default function FeedPage() {
                       disabled={actingId === `like:${item.item_type}:${item.id}`}
                       onClick={() => void onToggleLike(item)}
                     />
+                    <Badge variant="secondary" className="ml-auto">
+                      {item.item_type === "aggregate" ? "聚合" : "笔记"}
+                    </Badge>
                   </div>
                 </article>
               ))}
@@ -272,18 +265,19 @@ function parseScope(raw: string | null): FeedScope {
 }
 
 function SummaryBlock({
-  title,
+  variant,
   content,
-  emptyText,
 }: {
-  title: string;
-  content: string | null;
-  emptyText: string;
+  variant: "auto" | "note";
+  content: string;
 }) {
+  const blockClass =
+    variant === "auto"
+      ? "rounded-md border border-sky-100 bg-sky-50/70 p-2.5"
+      : "rounded-md border border-emerald-100 bg-emerald-50/70 p-2.5";
   return (
-    <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
-      <div className="text-xs font-medium text-muted-foreground">{title}</div>
-      <p className={SUMMARY_CLAMP_CLASS}>{content || emptyText}</p>
+    <div className={blockClass}>
+      <p className={SUMMARY_CLAMP_CLASS}>{content}</p>
     </div>
   );
 }
