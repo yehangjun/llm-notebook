@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+import re
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.tag_utils import normalize_hashtag, pick_localized_tags
@@ -18,7 +19,7 @@ from app.models.user_bookmark import UserBookmark
 from app.models.user_follow import UserFollow
 from app.models.user_like import UserLike
 from app.repositories.note_repo import NoteRepository
-from app.schemas.feed import FeedDetailResponse, FeedItem, FeedListResponse
+from app.schemas.feed import CreatorProfileResponse, FeedDetailResponse, FeedItem, FeedListResponse
 
 FEED_SCOPE_ALL = "all"
 FEED_SCOPE_FOLLOWING = "following"
@@ -205,6 +206,110 @@ class FeedService:
             )
         )
 
+    def get_creator_profile(
+        self,
+        *,
+        user: User,
+        creator_kind: str,
+        creator_id: str,
+    ) -> CreatorProfileResponse:
+        kind = creator_kind.strip().lower()
+        creator_id_value = creator_id.strip()
+        if not creator_id_value:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="创作者标识不能为空")
+
+        if kind == "user":
+            target_user = self.db.scalar(
+                select(User).where(User.user_id == creator_id_value, User.is_deleted.is_(False))
+            )
+            if not target_user:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="创作者不存在")
+
+            follower_count = int(
+                self.db.scalar(
+                    select(func.count(UserFollow.id)).where(UserFollow.target_user_id == target_user.id)
+                )
+                or 0
+            )
+            content_count = int(
+                self.db.scalar(
+                    select(func.count(Note.id)).where(
+                        Note.user_id == target_user.id,
+                        Note.visibility == "public",
+                        Note.is_deleted.is_(False),
+                    )
+                )
+                or 0
+            )
+            following = bool(
+                self.db.scalar(
+                    select(UserFollow.id).where(
+                        UserFollow.follower_user_id == user.id,
+                        UserFollow.target_user_id == target_user.id,
+                    )
+                )
+            )
+            can_follow = target_user.id != user.id
+            return CreatorProfileResponse(
+                creator_kind="user",
+                creator_id=target_user.user_id,
+                display_name=target_user.nickname or target_user.user_id,
+                source_domain=None,
+                homepage_url=None,
+                follower_count=follower_count,
+                content_count=content_count,
+                following=following if can_follow else False,
+                can_follow=can_follow,
+            )
+
+        if kind == "source":
+            source = self.db.scalar(
+                select(SourceCreator).where(
+                    SourceCreator.slug == creator_id_value,
+                    SourceCreator.is_active.is_(True),
+                    SourceCreator.is_deleted.is_(False),
+                )
+            )
+            if not source:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="创作者不存在")
+
+            follower_count = int(
+                self.db.scalar(
+                    select(func.count(UserFollow.id)).where(UserFollow.target_source_creator_id == source.id)
+                )
+                or 0
+            )
+            content_count = int(
+                self.db.scalar(
+                    select(func.count(AggregateItem.id)).where(
+                        AggregateItem.source_creator_id == source.id,
+                        AggregateItem.analysis_status == "succeeded",
+                    )
+                )
+                or 0
+            )
+            following = bool(
+                self.db.scalar(
+                    select(UserFollow.id).where(
+                        UserFollow.follower_user_id == user.id,
+                        UserFollow.target_source_creator_id == source.id,
+                    )
+                )
+            )
+            return CreatorProfileResponse(
+                creator_kind="source",
+                creator_id=source.slug,
+                display_name=source.display_name,
+                source_domain=source.source_domain,
+                homepage_url=source.homepage_url,
+                follower_count=follower_count,
+                content_count=content_count,
+                following=following,
+                can_follow=True,
+            )
+
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不支持的创作者类型")
+
     def get_item_detail(self, *, user: User, item_type: str, item_id: UUID) -> FeedDetailResponse:
         kind = item_type.strip().lower()
         followed_user_ids, followed_source_ids = self._load_following_sets(user.id)
@@ -361,6 +466,11 @@ class FeedService:
                     latest_summary=latest_summary,
                     prefer_zh=prefer_zh,
                 )
+                auto_summary_excerpt = self._shorten(
+                    self._pick_display_text(prefer_zh=prefer_zh, original=excerpt_original, zh=excerpt_zh),
+                    max_len=220,
+                )
+                note_body_excerpt = self._shorten(self._normalize_excerpt_text(note.note_body_md), max_len=220)
                 stats = note_stats.get(
                     note.id,
                     InteractionStats(like_count=0, bookmark_count=0, liked=False, bookmarked=False),
@@ -377,9 +487,12 @@ class FeedService:
                         source_title=display_title,
                         tags=display_tags,
                         analysis_status=note.analysis_status,
-                        summary_excerpt=self._shorten(
-                            self._pick_display_text(prefer_zh=prefer_zh, original=excerpt_original, zh=excerpt_zh)
+                        summary_excerpt=self._combine_summary_excerpt(
+                            auto_summary_excerpt=auto_summary_excerpt,
+                            note_body_excerpt=note_body_excerpt,
                         ),
+                        auto_summary_excerpt=auto_summary_excerpt,
+                        note_body_excerpt=note_body_excerpt,
                         published_at=latest_summary.published_at if latest_summary else None,
                         updated_at=note.updated_at,
                         like_count=stats.like_count,
@@ -397,6 +510,14 @@ class FeedService:
                 InteractionStats(like_count=0, bookmark_count=0, liked=False, bookmarked=False),
             )
             creator = aggregate.source_creator
+            auto_summary_excerpt = self._shorten(
+                self._pick_display_text(
+                    prefer_zh=prefer_zh,
+                    original=aggregate.summary_text,
+                    zh=aggregate.summary_text_zh,
+                ),
+                max_len=220,
+            )
             items.append(
                 FeedItem(
                     id=aggregate.id,
@@ -418,13 +539,9 @@ class FeedService:
                         zh_tags=aggregate.tags_zh_json,
                     ),
                     analysis_status=aggregate.analysis_status,
-                    summary_excerpt=self._shorten(
-                        self._pick_display_text(
-                            prefer_zh=prefer_zh,
-                            original=aggregate.summary_text,
-                            zh=aggregate.summary_text_zh,
-                        )
-                    ),
+                    summary_excerpt=auto_summary_excerpt,
+                    auto_summary_excerpt=auto_summary_excerpt,
+                    note_body_excerpt=None,
                     published_at=aggregate.published_at,
                     updated_at=aggregate.updated_at,
                     like_count=stats.like_count,
@@ -435,6 +552,26 @@ class FeedService:
                 )
             )
         return items
+
+    def _normalize_excerpt_text(self, raw_text: str | None) -> str | None:
+        if not raw_text:
+            return None
+        text = re.sub(r"\s+", " ", raw_text).strip()
+        return text or None
+
+    def _combine_summary_excerpt(
+        self,
+        *,
+        auto_summary_excerpt: str | None,
+        note_body_excerpt: str | None,
+    ) -> str | None:
+        if auto_summary_excerpt and note_body_excerpt:
+            return self._shorten(f"AI: {auto_summary_excerpt} | 心得: {note_body_excerpt}", max_len=220)
+        if auto_summary_excerpt:
+            return auto_summary_excerpt
+        if note_body_excerpt:
+            return note_body_excerpt
+        return None
 
     def _load_public_notes(self, *, fetch_limit: int) -> list[Note]:
         stmt = (

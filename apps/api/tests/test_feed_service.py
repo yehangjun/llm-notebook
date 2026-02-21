@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -62,3 +64,38 @@ def test_normalize_tag_rejects_invalid_input() -> None:
 
     assert exc.value.status_code == 400
     assert exc.value.detail == "标签筛选格式不合法"
+
+
+def test_get_creator_profile_rejects_empty_creator_id() -> None:
+    service = _build_service()
+    service.db = MagicMock()
+    current_user = SimpleNamespace(id=uuid4())
+
+    with pytest.raises(HTTPException) as exc:
+        service.get_creator_profile(user=current_user, creator_kind="user", creator_id="   ")
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "创作者标识不能为空"
+
+
+def test_get_creator_profile_returns_user_profile() -> None:
+    service = _build_service()
+    service.db = MagicMock()
+    current_user = SimpleNamespace(id=uuid4())
+    target_user = SimpleNamespace(id=uuid4(), user_id="alice", nickname="Alice")
+    service.db.scalar.side_effect = [
+        target_user,  # target user
+        9,  # follower count
+        3,  # content count
+        object(),  # following row exists
+    ]
+
+    profile = service.get_creator_profile(user=current_user, creator_kind="user", creator_id="alice")
+
+    assert profile.creator_kind == "user"
+    assert profile.creator_id == "alice"
+    assert profile.display_name == "Alice"
+    assert profile.follower_count == 9
+    assert profile.content_count == 3
+    assert profile.following is True
+    assert profile.can_follow is True

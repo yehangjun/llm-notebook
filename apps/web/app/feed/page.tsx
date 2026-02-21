@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import CreatorProfileHoverCard from "../../components/CreatorProfileHoverCard";
+import InteractionCountButton from "../../components/InteractionCountButton";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -13,6 +15,11 @@ import { clearAuth, UserPublic } from "../../lib/auth";
 import { FeedItem, FeedListResponse } from "../../lib/feed";
 
 type FeedScope = "following" | "unfollowed";
+
+const TITLE_CLAMP_CLASS =
+  "overflow-hidden text-left text-base font-semibold text-foreground transition-colors hover:text-primary [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]";
+const SUMMARY_CLAMP_CLASS =
+  "overflow-hidden text-sm leading-6 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]";
 
 export default function FeedPage() {
   const router = useRouter();
@@ -99,8 +106,7 @@ export default function FeedPage() {
     setError("");
     try {
       const method = item.liked ? "DELETE" : "POST";
-      const path =
-        item.item_type === "note" ? `/social/likes/notes/${item.id}` : `/social/likes/aggregates/${item.id}`;
+      const path = item.item_type === "note" ? `/social/likes/notes/${item.id}` : `/social/likes/aggregates/${item.id}`;
       await apiRequest<{ message: string }>(path, { method }, true);
       await fetchFeed({ nextScope: scope, nextTag: tag, nextKeyword: keyword });
     } catch (err) {
@@ -194,60 +200,61 @@ export default function FeedPage() {
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">当前没有内容</div>
             )}
 
-            <div className="grid gap-3">
+            <div className="grid gap-4 md:grid-cols-2">
               {items.map((item) => (
-                <article key={`${item.item_type}-${item.id}`} className="space-y-3 rounded-lg border border-border bg-white p-4">
-                  <div className="space-y-2">
-                    <h3 className="text-base font-semibold text-foreground">{item.source_title || item.source_url}</h3>
-                    <div className="text-sm text-muted-foreground">
-                      {item.creator_name} · {item.source_domain} · 发布时间 {formatPublishedAt(item)}
+                <article
+                  key={`${item.item_type}-${item.id}`}
+                  className="flex h-full flex-col justify-between rounded-lg border border-border bg-white p-4"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">{item.item_type === "aggregate" ? "聚合" : "笔记"}</Badge>
                     </div>
-                    {!!item.tags.length && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {item.tags.map((tagItem) => (
-                          <Badge key={`${item.id}-${tagItem}`} variant="muted">
-                            #{tagItem}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
+                    <button type="button" className={TITLE_CLAMP_CLASS} onClick={() => openDetail(item)}>
+                      {item.source_title || item.source_url}
+                    </button>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                      <CreatorProfileHoverCard
+                        creatorName={item.creator_name}
+                        creatorKind={item.creator_kind}
+                        creatorId={item.creator_id}
+                        sourceDomain={item.source_domain}
+                        following={item.following}
+                        disabled={actingId === `follow:${item.creator_kind}:${item.creator_id}`}
+                        onToggleFollow={() => onToggleFollow(item)}
+                      />
+                      <span>·</span>
+                      <span>{item.source_domain}</span>
+                      <span>·</span>
+                      <span>发布时间 {formatPublishedAt(item)}</span>
+                    </div>
+                    <SummaryBlock
+                      title="自动摘要"
+                      content={item.auto_summary_excerpt}
+                      emptyText="暂无自动摘要"
+                    />
+                    <SummaryBlock
+                      title="学习心得"
+                      content={item.note_body_excerpt}
+                      emptyText={item.item_type === "aggregate" ? "聚合内容暂无学习心得" : "暂无学习心得"}
+                    />
                   </div>
 
-                  {item.summary_excerpt && <p className="text-sm leading-6 text-muted-foreground">{item.summary_excerpt}</p>}
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge>{item.bookmark_count} 收藏</Badge>
-                    <Badge>{item.like_count} 点赞</Badge>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      type="button"
-                      disabled={actingId === `follow:${item.creator_kind}:${item.creator_id}`}
-                      onClick={() => void onToggleFollow(item)}
-                    >
-                      {item.following ? "取消关注" : "关注"}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      type="button"
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <InteractionCountButton
+                      kind="bookmark"
+                      count={item.bookmark_count}
+                      active={item.bookmarked}
                       disabled={actingId === `bookmark:${item.item_type}:${item.id}`}
                       onClick={() => void onToggleBookmark(item)}
-                    >
-                      {item.bookmarked ? "取消收藏" : "收藏"}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      type="button"
+                    />
+                    <InteractionCountButton
+                      kind="like"
+                      count={item.like_count}
+                      active={item.liked}
                       disabled={actingId === `like:${item.item_type}:${item.id}`}
                       onClick={() => void onToggleLike(item)}
-                    >
-                      {item.liked ? "取消点赞" : "点赞"}
-                    </Button>
-                    <Button size="sm" type="button" onClick={() => openDetail(item)}>
-                      查看
-                    </Button>
+                    />
                   </div>
                 </article>
               ))}
@@ -262,4 +269,21 @@ export default function FeedPage() {
 function parseScope(raw: string | null): FeedScope {
   if (raw === "unfollowed") return "unfollowed";
   return "following";
+}
+
+function SummaryBlock({
+  title,
+  content,
+  emptyText,
+}: {
+  title: string;
+  content: string | null;
+  emptyText: string;
+}) {
+  return (
+    <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+      <div className="text-xs font-medium text-muted-foreground">{title}</div>
+      <p className={SUMMARY_CLAMP_CLASS}>{content || emptyText}</p>
+    </div>
+  );
 }

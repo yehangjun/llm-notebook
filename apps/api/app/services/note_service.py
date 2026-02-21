@@ -390,6 +390,11 @@ class NoteService:
         bookmark_count: int,
     ) -> NoteListItem:
         prefer_zh = self._prefer_zh_ui(ui_language)
+        auto_summary_excerpt = self._build_auto_summary_excerpt(
+            latest_summary=latest_summary,
+            ui_language=ui_language,
+        )
+        note_body_excerpt = self._build_note_body_excerpt(note.note_body_md)
         return NoteListItem(
             id=note.id,
             source_url=note.source_url_normalized,
@@ -398,10 +403,11 @@ class NoteService:
             published_at=latest_summary.published_at if latest_summary else None,
             tags=self._display_tags_for_note(note=note, latest_summary=latest_summary, prefer_zh=prefer_zh),
             summary_excerpt=self._build_note_summary_excerpt(
-                note=note,
-                latest_summary=latest_summary,
-                ui_language=ui_language,
+                auto_summary_excerpt=auto_summary_excerpt,
+                note_body_excerpt=note_body_excerpt,
             ),
+            auto_summary_excerpt=auto_summary_excerpt,
+            note_body_excerpt=note_body_excerpt,
             like_count=like_count,
             bookmark_count=bookmark_count,
             visibility=note.visibility,
@@ -517,21 +523,33 @@ class NoteService:
     def _build_note_summary_excerpt(
         self,
         *,
-        note: Note,
+        auto_summary_excerpt: str | None,
+        note_body_excerpt: str | None,
+    ) -> str | None:
+        if auto_summary_excerpt and note_body_excerpt:
+            return self._shorten_text(f"AI: {auto_summary_excerpt} | 心得: {note_body_excerpt}", max_length=220)
+        if auto_summary_excerpt:
+            return auto_summary_excerpt
+        if note_body_excerpt:
+            return note_body_excerpt
+        return None
+
+    def _build_auto_summary_excerpt(
+        self,
+        *,
         latest_summary: NoteAISummary | None,
         ui_language: str | None,
     ) -> str | None:
         summary_public = self._build_summary_public(latest_summary, ui_language=ui_language) if latest_summary else None
-        ai_text = summary_public.summary_text if summary_public else None
-        note_text = self._normalize_excerpt_text(note.note_body_md)
+        if not summary_public or not summary_public.summary_text:
+            return None
+        return self._shorten_text(summary_public.summary_text, max_length=220)
 
-        if ai_text and note_text:
-            return self._shorten_text(f"AI: {ai_text} | 心得: {note_text}", max_length=220)
-        if ai_text:
-            return self._shorten_text(ai_text, max_length=220)
-        if note_text:
-            return self._shorten_text(note_text, max_length=220)
-        return None
+    def _build_note_body_excerpt(self, note_body_md: str | None) -> str | None:
+        note_text = self._normalize_excerpt_text(note_body_md)
+        if not note_text:
+            return None
+        return self._shorten_text(note_text, max_length=220)
 
     def _normalize_excerpt_text(self, raw_text: str | None) -> str:
         if not raw_text:

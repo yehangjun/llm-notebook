@@ -17,6 +17,8 @@ class FeedItem(BaseModel):
     tags: list[str] = Field(default_factory=list)
     analysis_status: str
     summary_excerpt: str | None
+    auto_summary_excerpt: str | None
+    note_body_excerpt: str | None
     published_at: datetime | None
     updated_at: datetime
     like_count: int
@@ -28,6 +30,18 @@ class FeedItem(BaseModel):
 
 class FeedListResponse(BaseModel):
     items: list[FeedItem]
+
+
+class CreatorProfileResponse(BaseModel):
+    creator_kind: Literal["user", "source"]
+    creator_id: str
+    display_name: str
+    source_domain: str | None
+    homepage_url: str | None
+    follower_count: int
+    content_count: int
+    following: bool
+    can_follow: bool
 
 
 class FeedDetailResponse(BaseModel):

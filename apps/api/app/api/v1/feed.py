@@ -1,12 +1,14 @@
 from uuid import UUID
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.feed import FeedDetailResponse, FeedListResponse
+from app.schemas.feed import CreatorProfileResponse, FeedDetailResponse, FeedListResponse
 from app.services.feed_service import FeedService
 
 router = APIRouter(prefix="/feed", tags=["feed"])
@@ -40,6 +42,20 @@ def list_bookmarks(
     db: Session = Depends(get_db),
 ):
     return FeedService(db).list_bookmarks(user=current_user, offset=offset, limit=limit)
+
+
+@router.get("/creators/profile", response_model=CreatorProfileResponse)
+def get_creator_profile(
+    creator_kind: Literal["user", "source"] = Query(...),
+    creator_id: str = Query(..., min_length=1, max_length=128),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return FeedService(db).get_creator_profile(
+        user=current_user,
+        creator_kind=creator_kind,
+        creator_id=creator_id,
+    )
 
 
 @router.get("/items/{item_type}/{item_id}", response_model=FeedDetailResponse)

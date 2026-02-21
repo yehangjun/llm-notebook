@@ -10,6 +10,8 @@ export type FeedItem = {
   tags: string[];
   analysis_status: "pending" | "running" | "succeeded" | "failed";
   summary_excerpt: string | null;
+  auto_summary_excerpt: string | null;
+  note_body_excerpt: string | null;
   published_at: string | null;
   updated_at: string;
   like_count: number;
@@ -21,6 +23,18 @@ export type FeedItem = {
 
 export type FeedListResponse = {
   items: FeedItem[];
+};
+
+export type CreatorProfile = {
+  creator_kind: "user" | "source";
+  creator_id: string;
+  display_name: string;
+  source_domain: string | null;
+  homepage_url: string | null;
+  follower_count: number;
+  content_count: number;
+  following: boolean;
+  can_follow: boolean;
 };
 
 export type FeedDetailResponse = {

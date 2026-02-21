@@ -22,6 +22,8 @@ export type NoteListItem = {
   published_at: string | null;
   tags: string[];
   summary_excerpt: string | null;
+  auto_summary_excerpt: string | null;
+  note_body_excerpt: string | null;
   like_count: number;
   bookmark_count: number;
   visibility: "private" | "public";

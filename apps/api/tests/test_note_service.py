@@ -128,13 +128,9 @@ def test_run_analysis_job_skips_non_pending_note() -> None:
 
 def test_build_note_summary_excerpt_combines_ai_and_note_text() -> None:
     service = _build_service()
-    service._build_summary_public = MagicMock(return_value=SimpleNamespace(summary_text="AI 总结"))
-    note = SimpleNamespace(note_body_md="用户学习心得")
-
     excerpt = service._build_note_summary_excerpt(
-        note=note,
-        latest_summary=SimpleNamespace(),
-        ui_language="zh-CN",
+        auto_summary_excerpt="AI 总结",
+        note_body_excerpt="用户学习心得",
     )
 
     assert excerpt == "AI: AI 总结 | 心得: 用户学习心得"
@@ -142,13 +138,9 @@ def test_build_note_summary_excerpt_combines_ai_and_note_text() -> None:
 
 def test_build_note_summary_excerpt_returns_none_when_empty() -> None:
     service = _build_service()
-    service._build_summary_public = MagicMock(return_value=SimpleNamespace(summary_text=None))
-    note = SimpleNamespace(note_body_md="   ")
-
     excerpt = service._build_note_summary_excerpt(
-        note=note,
-        latest_summary=SimpleNamespace(),
-        ui_language="zh-CN",
+        auto_summary_excerpt=None,
+        note_body_excerpt=None,
     )
 
     assert excerpt is None
