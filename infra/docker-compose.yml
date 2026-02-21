@@ -1,4 +1,10 @@
 services:
+  proxy-bridge:
+    image: alpine/socat
+    command: "tcp-listen:17890,fork,reuseaddr,bind=172.17.0.1 tcp:127.0.0.1:7890"
+    network_mode: host
+    restart: unless-stopped
+
   db:
     image: postgres:16-alpine
     environment:
@@ -30,9 +36,13 @@ services:
       context: ../apps/api
     env_file:
       - ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     depends_on:
+      proxy-bridge:
+        condition: service_started
       db:
         condition: service_healthy
       redis:

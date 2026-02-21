@@ -866,11 +866,12 @@ def run_aggregation_refresh_job(*, job_id: str, source_id: str | None) -> None:
             result = service.refresh_single_source(source_id=UUID(source_id))
         else:
             result = service.refresh_active_items()
-
-        payload["status"] = "succeeded"
+        all_items_failed = result.refreshed_items == 0 and result.failed_items > 0
+        payload["status"] = "failed" if all_items_failed else "succeeded"
         payload["total_sources"] = result.total_sources
         payload["refreshed_items"] = result.refreshed_items
         payload["failed_items"] = result.failed_items
+        payload["error_message"] = "聚合刷新已完成，但全部条目处理失败" if all_items_failed else None
         payload["finished_at"] = datetime.now(timezone.utc).isoformat()
         _save_refresh_job(redis, payload)
     except Exception as exc:  # noqa: BLE001
