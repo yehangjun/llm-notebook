@@ -11,6 +11,7 @@ from app.models.aggregate_item import AggregateItem
 from app.core.config import ALLOWED_UI_LANGUAGES
 from app.core.config import settings
 from app.models.note import Note
+from app.models.note_ai_summary import NoteAISummary
 from app.models.source_creator import SourceCreator
 from app.models.user import User
 from app.repositories.note_repo import NoteRepository
@@ -108,7 +109,8 @@ class AdminService:
             offset=offset,
             limit=limit,
         )
-        return [self._build_admin_note_item(note) for note in notes]
+        latest_summaries = {note.id: self.note_repo.get_latest_summary(note.id) for note in notes}
+        return [self._build_admin_note_item(note, latest_summary=latest_summaries.get(note.id)) for note in notes]
 
     def delete_note(self, *, note_id: UUID) -> GenericMessageResponse:
         note = self.note_repo.get_by_id_for_admin(note_id, include_deleted=True)
@@ -364,9 +366,10 @@ class AdminService:
     def get_aggregate_refresh_job(self, *, job_id: str) -> dict | None:
         return get_aggregation_refresh_job(job_id)
 
-    def _build_admin_note_item(self, note: Note) -> AdminNoteItem:
+    def _build_admin_note_item(self, note: Note, *, latest_summary: NoteAISummary | None) -> AdminNoteItem:
         owner_user_id = note.user.user_id if note.user else ""
         owner_is_deleted = bool(note.user.is_deleted) if note.user else False
+        failed_summary = latest_summary if latest_summary and latest_summary.status == "failed" else None
         return AdminNoteItem(
             id=note.id,
             owner_user_id=owner_user_id,
@@ -376,6 +379,14 @@ class AdminService:
             source_title=note.source_title,
             visibility=note.visibility,
             analysis_status=note.analysis_status,
+            analysis_error=note.analysis_error,
+            failure_error_code=failed_summary.error_code if failed_summary else None,
+            failure_error_message=failed_summary.error_message if failed_summary else None,
+            failure_error_stage=failed_summary.error_stage if failed_summary else None,
+            failure_error_class=failed_summary.error_class if failed_summary else None,
+            failure_retryable=failed_summary.retryable if failed_summary else None,
+            failure_elapsed_ms=failed_summary.elapsed_ms if failed_summary else None,
+            failure_analyzed_at=failed_summary.analyzed_at if failed_summary else None,
             is_deleted=note.is_deleted,
             deleted_at=note.deleted_at,
             updated_at=note.updated_at,

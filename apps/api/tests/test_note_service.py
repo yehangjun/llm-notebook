@@ -75,6 +75,10 @@ def test_run_analysis_job_routes_analysis_error_to_failed_marker() -> None:
         note_id=note_id,
         error_code="empty_content",
         error_message="来源内容为空",
+        error_stage="content_fetch",
+        error_class="AnalysisError",
+        retryable=False,
+        elapsed_ms=0,
     )
 
 
@@ -88,6 +92,10 @@ def test_mark_analysis_failed_rolls_back_and_writes_failed_summary() -> None:
         note_id=note_id,
         error_code="analysis_error",
         error_message="x" * 600,
+        error_stage="unknown",
+        error_class="RuntimeError",
+        retryable=True,
+        elapsed_ms=1234,
     )
 
     service.db.rollback.assert_called_once()
@@ -98,6 +106,10 @@ def test_mark_analysis_failed_rolls_back_and_writes_failed_summary() -> None:
     assert summary_kwargs["status"] == "failed"
     assert summary_kwargs["error_code"] == "analysis_error"
     assert summary_kwargs["error_message"] == note.analysis_error
+    assert summary_kwargs["error_stage"] == "unknown"
+    assert summary_kwargs["error_class"] == "RuntimeError"
+    assert summary_kwargs["retryable"] is True
+    assert summary_kwargs["elapsed_ms"] == 1234
     assert summary_kwargs["prompt_version"] == settings.llm_prompt_version
 
 

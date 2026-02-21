@@ -598,3 +598,44 @@ Phase 2（一致性增强）：
 Phase 3（质量优化）：
 - Prompt A/B 与标签质量评估
 - 分域名策略（公众号/YouTube/博客）定制抽取与提示词
+
+## 14. 失败可观测详细设计（最小改动版）
+
+### 14.1 目标与范围
+- 本节承接 `SPEC.md` 中“管理后台失败可观测”要求，覆盖学习笔记分析与聚合刷新。
+- 目标是降低 `content fetch` 与 `llm analysis` 失败定位成本，优先支持管理员快速筛查与重试。
+
+### 14.2 学习笔记分析失败诊断
+- 依托现有 `note_ai_summaries` 历史表扩展失败诊断字段（不引入新任务表）：
+  - `error_code`, `error_message`
+  - `error_stage`: `content_fetch` / `llm_request` / `llm_parse` / `unknown`
+  - `error_class`: 异常类型
+  - `retryable`: 是否建议重试
+  - `elapsed_ms`: 本次分析耗时
+  - `analyzed_at`: 失败发生时间
+- 阶段分类规则（最小版）：
+  - `source_unreachable` / `empty_content` -> `content_fetch`
+  - `invalid_output` / `llm_invalid_response` -> `llm_parse`
+  - 其他 `llm_*` -> `llm_request`
+  - 其余情况 -> `unknown`
+- 管理后台笔记列表返回“最近一次失败诊断”快照，并支持：
+  - 按失败阶段筛选
+  - 按重试建议筛选（建议重试 / 建议先修复配置）
+
+### 14.3 聚合刷新失败诊断
+- 聚合刷新任务状态对象新增 `failures[]`，与汇总计数一起返回。
+- 单条失败明细包含：
+  - `source_id`, `source_slug`, `item_id`, `source_url`
+  - `stage`, `error_class`, `error_message`
+  - `elapsed_ms`, `retryable`, `created_at`
+- 失败阶段统一枚举：
+  - `feed_fetch` / `feed_parse` / `content_fetch` / `llm_request` / `llm_parse` / `db_write` / `unknown`
+- 管理后台聚合源页面支持：
+  - 按阶段、来源、关键词筛选失败明细
+  - 条目级失败重试（触发单条聚合条目重分析）
+  - 来源级失败重试（触发单源刷新）
+
+### 14.4 存储与生命周期
+- 聚合失败明细随刷新任务状态存储在 Redis 任务 payload，不单独建表。
+- 生命周期沿用任务 TTL，定位窗口以短期排障为主。
+- 超出 TTL 后，仅保留业务实体当前状态快照（如 `analysis_status` / `analysis_error`）。

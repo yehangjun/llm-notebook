@@ -41,6 +41,10 @@ ALLOWED_ANALYSIS_STATUS = {"pending", "running", "succeeded", "failed"}
 MAX_NOTE_TAGS = 5
 MAX_NOTE_TAG_LENGTH = 24
 MAX_ANALYSIS_TAGS = 5
+ANALYSIS_STAGE_UNKNOWN = "unknown"
+ANALYSIS_STAGE_CONTENT_FETCH = "content_fetch"
+ANALYSIS_STAGE_LLM_REQUEST = "llm_request"
+ANALYSIS_STAGE_LLM_PARSE = "llm_parse"
 WECHAT_HOST = "mp.weixin.qq.com"
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
 YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
@@ -71,6 +75,14 @@ class SourceAnalysis:
     input_tokens: int | None
     output_tokens: int | None
     raw_response_json: dict | None
+
+
+@dataclass(slots=True)
+class AnalysisFailureDiagnostic:
+    error_stage: str
+    error_class: str
+    retryable: bool
+    elapsed_ms: int
 
 
 def run_note_analysis_job(note_id: UUID) -> None:
@@ -221,16 +233,31 @@ class NoteService:
         self.note_repo.save(note)
         self.db.commit()
 
+        analysis_started_at = datetime.now()
         try:
             result = self._analyze_source(note)
         except AnalysisError as exc:
-            self._mark_analysis_failed(note_id=note.id, error_code=exc.code, error_message=exc.message)
+            diagnostic = self._build_failure_diagnostic(exc=exc, started_at=analysis_started_at)
+            self._mark_analysis_failed(
+                note_id=note.id,
+                error_code=exc.code,
+                error_message=exc.message,
+                error_stage=diagnostic.error_stage,
+                error_class=diagnostic.error_class,
+                retryable=diagnostic.retryable,
+                elapsed_ms=diagnostic.elapsed_ms,
+            )
             return
         except Exception as exc:  # noqa: BLE001
+            diagnostic = self._build_failure_diagnostic(exc=exc, started_at=analysis_started_at)
             self._mark_analysis_failed(
                 note_id=note.id,
                 error_code="analysis_error",
                 error_message=str(exc).strip() or "分析失败",
+                error_stage=diagnostic.error_stage,
+                error_class=diagnostic.error_class,
+                retryable=diagnostic.retryable,
+                elapsed_ms=diagnostic.elapsed_ms,
             )
             return
 
@@ -267,10 +294,24 @@ class NoteService:
             raw_response_json=result.raw_response_json,
             error_code=None,
             error_message=None,
+            error_stage=None,
+            error_class=None,
+            retryable=None,
+            elapsed_ms=None,
         )
         self.db.commit()
 
-    def _mark_analysis_failed(self, *, note_id: UUID, error_code: str, error_message: str) -> None:
+    def _mark_analysis_failed(
+        self,
+        *,
+        note_id: UUID,
+        error_code: str,
+        error_message: str,
+        error_stage: str,
+        error_class: str,
+        retryable: bool,
+        elapsed_ms: int,
+    ) -> None:
         self.db.rollback()
         note = self.note_repo.get_by_id(note_id)
         if not note:
@@ -303,6 +344,10 @@ class NoteService:
             raw_response_json=None,
             error_code=error_code,
             error_message=message,
+            error_stage=error_stage,
+            error_class=error_class,
+            retryable=retryable,
+            elapsed_ms=elapsed_ms,
         )
         self.db.commit()
 
@@ -601,6 +646,63 @@ class NoteService:
             output_tokens=result.output_tokens,
             raw_response_json=result.raw_response,
         )
+
+    def _build_failure_diagnostic(self, *, exc: Exception, started_at: datetime) -> AnalysisFailureDiagnostic:
+        if isinstance(exc, AnalysisError):
+            stage = self._classify_stage_by_error_code(exc.code)
+            retryable = self._is_retryable_error_code(exc.code) or self._is_retryable_message(exc.message)
+        else:
+            message = str(exc).strip()
+            stage = ANALYSIS_STAGE_UNKNOWN
+            retryable = self._is_retryable_message(message)
+        return AnalysisFailureDiagnostic(
+            error_stage=stage,
+            error_class=exc.__class__.__name__,
+            retryable=retryable,
+            elapsed_ms=self._elapsed_ms(started_at),
+        )
+
+    def _classify_stage_by_error_code(self, error_code: str | None) -> str:
+        code = (error_code or "").strip().lower()
+        if not code:
+            return ANALYSIS_STAGE_UNKNOWN
+        if code in {"source_unreachable", "empty_content"}:
+            return ANALYSIS_STAGE_CONTENT_FETCH
+        if code in {"invalid_output", "llm_invalid_response"}:
+            return ANALYSIS_STAGE_LLM_PARSE
+        if code.startswith("llm_"):
+            return ANALYSIS_STAGE_LLM_REQUEST
+        return ANALYSIS_STAGE_UNKNOWN
+
+    def _is_retryable_error_code(self, error_code: str | None) -> bool:
+        code = (error_code or "").strip().lower()
+        return code in {"source_unreachable", "llm_timeout", "llm_network_error", "llm_http_error", "llm_request_failed"}
+
+    def _is_retryable_message(self, message: str | None) -> bool:
+        lowered = (message or "").strip().lower()
+        if not lowered:
+            return False
+        hints = (
+            "timed out",
+            "timeout",
+            "temporarily unavailable",
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "temporary failure",
+            "try again",
+            "429",
+            "502",
+            "503",
+            "504",
+            "rate limit",
+            "overloaded",
+            "请稍后重试",
+        )
+        return any(hint in lowered for hint in hints)
+
+    def _elapsed_ms(self, started_at: datetime) -> int:
+        return max(0, int((datetime.now() - started_at).total_seconds() * 1000))
 
     def _analysis_model_provider(self) -> str:
         return settings.llm_provider_name

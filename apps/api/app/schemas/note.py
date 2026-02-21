@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -76,6 +77,14 @@ class AdminNoteItem(BaseModel):
     source_title: str | None
     visibility: str
     analysis_status: str
+    analysis_error: str | None
+    failure_error_code: str | None
+    failure_error_message: str | None
+    failure_error_stage: Literal["content_fetch", "llm_request", "llm_parse", "unknown"] | None
+    failure_error_class: str | None
+    failure_retryable: bool | None
+    failure_elapsed_ms: int | None
+    failure_analyzed_at: datetime | None
     is_deleted: bool
     deleted_at: datetime | None
     updated_at: datetime

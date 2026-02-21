@@ -238,6 +238,10 @@ class NoteRepository:
         raw_response_json: dict | None,
         error_code: str | None,
         error_message: str | None,
+        error_stage: str | None,
+        error_class: str | None,
+        retryable: bool | None,
+        elapsed_ms: int | None,
     ) -> NoteAISummary:
         summary = NoteAISummary(
             note_id=note_id,
@@ -262,6 +266,10 @@ class NoteRepository:
             raw_response_json=raw_response_json,
             error_code=error_code,
             error_message=error_message,
+            error_stage=error_stage,
+            error_class=error_class,
+            retryable=retryable,
+            elapsed_ms=elapsed_ms,
         )
         self.db.add(summary)
         self.db.flush()

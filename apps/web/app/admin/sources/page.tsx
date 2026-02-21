@@ -28,6 +28,7 @@ type AdminSourceCreatorListResponse = { sources: AdminSourceCreatorItem[] };
 
 type RefreshScope = "all" | "source";
 type RefreshStatus = "queued" | "running" | "succeeded" | "failed" | "not_found";
+type RefreshFailureStage = "feed_fetch" | "feed_parse" | "content_fetch" | "llm_request" | "llm_parse" | "db_write" | "unknown";
 
 type AggregateRefreshJobAccepted = {
   job_id: string;
@@ -51,6 +52,20 @@ type AggregateRefreshJobStatus = {
   started_at: string | null;
   finished_at: string | null;
   error_message: string | null;
+  failures: AggregateRefreshFailureItem[];
+};
+
+type AggregateRefreshFailureItem = {
+  source_id: string | null;
+  source_slug: string | null;
+  item_id: string | null;
+  source_url: string | null;
+  stage: RefreshFailureStage;
+  error_class: string;
+  error_message: string;
+  elapsed_ms: number | null;
+  retryable: boolean;
+  created_at: string;
 };
 
 type SourceDraft = {
@@ -111,6 +126,10 @@ export default function AdminSourcesPage() {
   const [actingSourceId, setActingSourceId] = useState("");
   const [creating, setCreating] = useState(false);
   const [triggeringRefresh, setTriggeringRefresh] = useState(false);
+  const [failureStageFilter, setFailureStageFilter] = useState<RefreshFailureStage | "">("");
+  const [failureSourceFilter, setFailureSourceFilter] = useState("");
+  const [failureKeyword, setFailureKeyword] = useState("");
+  const [retryingFailureKey, setRetryingFailureKey] = useState("");
 
   useEffect(() => {
     const cached = getStoredUser();
@@ -331,6 +350,7 @@ export default function AdminSourcesPage() {
         started_at: null,
         finished_at: null,
         error_message: null,
+        failures: [],
       });
       setSuccess(accepted.message);
     } catch (err) {
@@ -339,6 +359,96 @@ export default function AdminSourcesPage() {
       setTriggeringRefresh(false);
     }
   }
+
+  async function onRetryFailure(failure: AggregateRefreshFailureItem, key: string) {
+    setError("");
+    setSuccess("");
+    setRetryingFailureKey(key);
+    try {
+      if (failure.item_id) {
+        const result = await apiRequest<{ message: string }>(
+          `/admin/aggregates/items/${failure.item_id}/reanalyze`,
+          { method: "POST" },
+          true,
+        );
+        setSuccess(`${failure.source_slug || "聚合条目"}: ${result.message}`);
+        return;
+      }
+
+      if (failure.source_id) {
+        const accepted = await apiRequest<AggregateRefreshJobAccepted>(
+          `/admin/aggregates/refresh?source_id=${encodeURIComponent(failure.source_id)}`,
+          { method: "POST" },
+          true,
+        );
+        setRefreshJob({
+          job_id: accepted.job_id,
+          status: accepted.status,
+          scope: accepted.scope,
+          source_id: accepted.source_id,
+          source_slug: accepted.source_slug,
+          total_sources: null,
+          refreshed_items: null,
+          failed_items: null,
+          created_at: null,
+          started_at: null,
+          finished_at: null,
+          error_message: null,
+          failures: [],
+        });
+        setSuccess(`${failure.source_slug || "信息源"}: ${accepted.message}`);
+        return;
+      }
+
+      setError("该失败记录缺少可重试目标（item_id/source_id）");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重试失败");
+    } finally {
+      setRetryingFailureKey("");
+    }
+  }
+
+  const failureSourceOptions = useMemo(() => {
+    if (!refreshJob?.failures.length) {
+      return [];
+    }
+    const values = new Set<string>();
+    for (const failure of refreshJob.failures) {
+      if (!failure.source_slug) {
+        continue;
+      }
+      values.add(failure.source_slug);
+    }
+    return Array.from(values.values()).sort((a, b) => a.localeCompare(b));
+  }, [refreshJob]);
+
+  const filteredFailures = useMemo(() => {
+    if (!refreshJob?.failures.length) {
+      return [];
+    }
+    const keywordValue = failureKeyword.trim().toLowerCase();
+    return refreshJob.failures.filter((failure) => {
+      if (failureStageFilter && failure.stage !== failureStageFilter) {
+        return false;
+      }
+      if (failureSourceFilter && (failure.source_slug || "") !== failureSourceFilter) {
+        return false;
+      }
+      if (!keywordValue) {
+        return true;
+      }
+      const haystack = [
+        failure.source_url || "",
+        failure.error_class || "",
+        failure.error_message || "",
+        failure.item_id || "",
+        failure.source_slug || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(keywordValue);
+    });
+  }, [refreshJob, failureKeyword, failureSourceFilter, failureStageFilter]);
 
   const canRender = useMemo(() => Boolean(me?.is_admin), [me]);
 
@@ -474,6 +584,11 @@ export default function AdminSourcesPage() {
                   {refreshJob.scope ? ` · 范围：${refreshJob.scope === "all" ? "全部源" : "单个源"}` : ""}
                   {refreshJob.source_slug ? ` · 信息源：${refreshJob.source_slug}` : ""}
                 </div>
+                <div className="text-xs text-muted-foreground">
+                  创建：{refreshJob.created_at ? new Date(refreshJob.created_at).toLocaleString() : "-"} · 开始：
+                  {refreshJob.started_at ? new Date(refreshJob.started_at).toLocaleString() : "-"} · 结束：
+                  {refreshJob.finished_at ? new Date(refreshJob.finished_at).toLocaleString() : "-"}
+                </div>
                 {refreshJob.status === "succeeded" && (
                   <div className="text-sm text-foreground">
                     来源数：{refreshJob.total_sources ?? 0}，刷新成功：{refreshJob.refreshed_items ?? 0}，失败：
@@ -483,6 +598,115 @@ export default function AdminSourcesPage() {
                 {refreshJob.error_message && (
                   <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                     {refreshJob.error_message}
+                  </div>
+                )}
+                {refreshJob.failures.length > 0 && (
+                  <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-2.5">
+                    <div className="text-sm font-semibold text-foreground">
+                      失败明细：{filteredFailures.length} / {refreshJob.failures.length}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <select
+                        className={SELECT_CLASS}
+                        value={failureStageFilter}
+                        onChange={(e) => setFailureStageFilter(e.target.value as RefreshFailureStage | "")}
+                      >
+                        <option value="">全部阶段</option>
+                        <option value="feed_fetch">feed 抓取</option>
+                        <option value="feed_parse">feed 解析</option>
+                        <option value="content_fetch">正文抓取</option>
+                        <option value="llm_request">LLM 请求</option>
+                        <option value="llm_parse">LLM 解析</option>
+                        <option value="db_write">数据写入</option>
+                        <option value="unknown">未知</option>
+                      </select>
+                      <select className={SELECT_CLASS} value={failureSourceFilter} onChange={(e) => setFailureSourceFilter(e.target.value)}>
+                        <option value="">全部来源</option>
+                        {failureSourceOptions.map((slug) => (
+                          <option key={`failure-source-${slug}`} value={slug}>
+                            {slug}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        className="min-w-[240px] flex-1"
+                        placeholder="按 URL / 错误信息 / item_id 搜索"
+                        value={failureKeyword}
+                        onChange={(e) => setFailureKeyword(e.target.value)}
+                      />
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[1000px] border-collapse text-xs [&_th]:border-b [&_th]:border-border [&_th]:bg-white/40 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-b [&_td]:border-border [&_td]:px-2 [&_td]:py-1.5">
+                        <thead>
+                          <tr>
+                            <th>时间</th>
+                            <th>来源</th>
+                            <th>阶段</th>
+                            <th>目标</th>
+                            <th>错误</th>
+                            <th>耗时</th>
+                            <th>重试</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredFailures.map((failure, index) => {
+                            const retryKey = `${failure.created_at}-${failure.stage}-${failure.item_id || failure.source_id || index}`;
+                            const targetLabel = failure.item_id ? "条目" : "来源";
+                            return (
+                              <tr key={retryKey}>
+                                <td>{new Date(failure.created_at).toLocaleString()}</td>
+                                <td>{failure.source_slug || "-"}</td>
+                                <td>{renderFailureStage(failure.stage)}</td>
+                                <td>
+                                  <div className="space-y-1">
+                                    <div>
+                                      {targetLabel}
+                                      {failure.item_id ? ` ${failure.item_id.slice(0, 8)}` : ""}
+                                    </div>
+                                    {failure.source_url ? (
+                                      <a
+                                        className="break-all text-primary underline-offset-2 hover:underline"
+                                        href={failure.source_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        {failure.source_url}
+                                      </a>
+                                    ) : (
+                                      <span className="text-muted-foreground">-</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td>
+                                  <div className="max-w-[320px] break-words">
+                                    <div className="font-medium">{failure.error_class}</div>
+                                    <div>{failure.error_message}</div>
+                                  </div>
+                                </td>
+                                <td>{failure.elapsed_ms != null ? `${failure.elapsed_ms}ms` : "-"}</td>
+                                <td>
+                                  {failure.item_id || failure.source_id ? (
+                                    <Button
+                                      variant="secondary"
+                                      type="button"
+                                      disabled={retryingFailureKey === retryKey}
+                                      onClick={() => void onRetryFailure(failure, retryKey)}
+                                    >
+                                      {retryingFailureKey === retryKey ? "处理中..." : failure.item_id ? "重试条目" : "重试来源"}
+                                    </Button>
+                                  ) : (
+                                    <span className="text-muted-foreground">缺少重试目标</span>
+                                  )}
+                                  <div className="mt-1 text-[11px] text-muted-foreground">
+                                    {failure.retryable ? "建议重试" : "建议先修复配置后再重试"}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -638,4 +862,14 @@ function renderRefreshStatus(status: RefreshStatus): string {
   if (status === "succeeded") return "成功";
   if (status === "failed") return "失败";
   return "未找到";
+}
+
+function renderFailureStage(stage: RefreshFailureStage): string {
+  if (stage === "feed_fetch") return "feed 抓取";
+  if (stage === "feed_parse") return "feed 解析";
+  if (stage === "content_fetch") return "正文抓取";
+  if (stage === "llm_request") return "LLM 请求";
+  if (stage === "llm_parse") return "LLM 解析";
+  if (stage === "db_write") return "数据写入";
+  return "未知";
 }

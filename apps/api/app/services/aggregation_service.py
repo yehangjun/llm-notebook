@@ -51,6 +51,7 @@ SKIP_FILE_SUFFIXES = {
 }
 TRACKING_QUERY_KEYS = {"ref", "source", "spm", "from", "fbclid", "gclid"}
 REFRESH_JOB_KEY_PREFIX = "aggregation:refresh:job:"
+REFRESH_JOB_MAX_FAILURE_EVENTS = 120
 logger = logging.getLogger(__name__)
 
 
@@ -76,10 +77,20 @@ class FeedEntryCandidate:
     published_at: datetime | None
 
 
+class AggregationStageError(ValueError):
+    def __init__(self, message: str, *, stage: str, retryable: bool, error_class: str | None = None) -> None:
+        super().__init__(message)
+        self.stage = stage
+        self.retryable = retryable
+        self.error_class = (error_class or self.__class__.__name__)[:96]
+
+
 class AggregationService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.llm_client = LLMClient()
+        self._refresh_failures: list[dict[str, Any]] = []
+        self._latest_analysis_failure: dict[str, Any] | None = None
 
     def ensure_preset_sources(self) -> None:
         preset_sources = _load_preset_source_configs()
@@ -200,17 +211,41 @@ class AggregationService:
     def _refresh_sources(self, sources: list[SourceCreator]) -> RefreshAggregatesResponse:
         refreshed = 0
         failed = 0
+        self._refresh_failures = []
 
         for source in sources:
+            source_started_at = datetime.now(timezone.utc)
             try:
                 feed_entries = self._collect_feed_entries(source)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 failed += 1
+                self._record_refresh_failure(
+                    source_id=str(source.id),
+                    source_slug=source.slug,
+                    item_id=None,
+                    source_url=source.feed_url,
+                    stage=self._classify_feed_error_stage(exc),
+                    error_class=self._extract_error_class(exc),
+                    error_message=self._extract_error_message(exc, fallback="抓取信息源失败"),
+                    elapsed_ms=self._elapsed_ms(source_started_at),
+                    retryable=self._is_retryable_error(exc),
+                )
                 continue
 
             items = self._ensure_items_for_source(source=source, feed_entries=feed_entries)
             if not items:
                 failed += 1
+                self._record_refresh_failure(
+                    source_id=str(source.id),
+                    source_slug=source.slug,
+                    item_id=None,
+                    source_url=source.feed_url,
+                    stage="feed_parse",
+                    error_class="ValueError",
+                    error_message="信息源没有产出可分析条目",
+                    elapsed_ms=self._elapsed_ms(source_started_at),
+                    retryable=False,
+                )
                 continue
 
             for item in items:
@@ -220,6 +255,20 @@ class AggregationService:
                     refreshed += 1
                 else:
                     failed += 1
+                    if self._latest_analysis_failure:
+                        self._record_refresh_failure(**self._latest_analysis_failure)
+                    else:
+                        self._record_refresh_failure(
+                            source_id=str(source.id),
+                            source_slug=source.slug,
+                            item_id=str(item.id),
+                            source_url=item.source_url_normalized,
+                            stage="unknown",
+                            error_class="ValueError",
+                            error_message=(item.analysis_error or "聚合分析失败")[:500],
+                            elapsed_ms=None,
+                            retryable=False,
+                        )
 
         self.db.commit()
         return RefreshAggregatesResponse(
@@ -351,24 +400,49 @@ class AggregationService:
         return not bool((item.summary_text or "").strip())
 
     def _run_analysis(self, *, item: AggregateItem, source: SourceCreator) -> bool:
+        started_at = datetime.now(timezone.utc)
+        self._latest_analysis_failure = None
         item.analysis_status = "running"
         item.analysis_error = None
         self.db.add(item)
         self.db.flush()
 
         try:
-            title, content, _, inferred_published_at = self._fetch_source_document(item.source_url)
+            try:
+                title, content, _, inferred_published_at = self._fetch_source_document(item.source_url)
+            except Exception as exc:  # noqa: BLE001
+                raise AggregationStageError(
+                    self._extract_error_message(exc, fallback="获取来源内容失败"),
+                    stage="content_fetch",
+                    retryable=self._is_retryable_error(exc),
+                    error_class=self._extract_error_class(exc),
+                ) from exc
             if not content:
-                raise ValueError("来源内容为空，无法分析")
+                raise AggregationStageError(
+                    "来源内容为空，无法分析",
+                    stage="content_fetch",
+                    retryable=False,
+                    error_class="ValueError",
+                )
 
-            result = self._analyze_with_model(
-                source_url=item.source_url,
-                source_domain=item.source_domain,
-                source_title=title,
-                source_slug=source.slug,
-                content=content,
-                inferred_published_at=inferred_published_at,
-            )
+            try:
+                result = self._analyze_with_model(
+                    source_url=item.source_url,
+                    source_domain=item.source_domain,
+                    source_title=title,
+                    source_slug=source.slug,
+                    content=content,
+                    inferred_published_at=inferred_published_at,
+                )
+            except AggregationStageError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise AggregationStageError(
+                    self._extract_error_message(exc, fallback="模型分析失败"),
+                    stage="llm_request",
+                    retryable=self._is_retryable_error(exc),
+                    error_class=self._extract_error_class(exc),
+                ) from exc
 
             item.source_title = (result.title or item.source_title or "")[:512] or None
             item.source_title_zh = (result.title_zh or "")[:512] or None
@@ -390,9 +464,28 @@ class AggregationService:
             return True
         except Exception as exc:  # noqa: BLE001
             item.analysis_status = "failed"
-            item.analysis_error = (str(exc).strip() or "聚合分析失败")[:500]
+            item.analysis_error = self._extract_error_message(exc, fallback="聚合分析失败")
             self.db.add(item)
             self.db.flush()
+            if isinstance(exc, AggregationStageError):
+                stage = exc.stage
+                retryable = exc.retryable
+                error_class = exc.error_class
+            else:
+                stage = "unknown"
+                retryable = self._is_retryable_error(exc)
+                error_class = self._extract_error_class(exc)
+            self._latest_analysis_failure = {
+                "source_id": str(source.id),
+                "source_slug": source.slug,
+                "item_id": str(item.id),
+                "source_url": item.source_url_normalized,
+                "stage": stage,
+                "error_class": error_class,
+                "error_message": item.analysis_error,
+                "elapsed_ms": self._elapsed_ms(started_at),
+                "retryable": retryable,
+            }
             return False
 
     def _analyze_with_model(
@@ -415,7 +508,12 @@ class AggregationService:
             )
         except LLMClientError as exc:
             if exc.code != "invalid_output":
-                raise ValueError(exc.message) from exc
+                raise AggregationStageError(
+                    exc.message,
+                    stage="llm_request",
+                    retryable=self._is_retryable_error(exc, message=exc.message),
+                    error_class="LLMClientError",
+                ) from exc
             try:
                 result = self.llm_client.analyze(
                     source_url=source_url,
@@ -425,11 +523,21 @@ class AggregationService:
                     repair_mode=True,
                 )
             except LLMClientError as second_exc:
-                raise ValueError(second_exc.message) from second_exc
+                raise AggregationStageError(
+                    second_exc.message,
+                    stage="llm_parse",
+                    retryable=False,
+                    error_class="LLMClientError",
+                ) from second_exc
 
         summary_text = (result.summary or "").strip()[:400]
         if not summary_text:
-            raise ValueError("模型未返回有效摘要")
+            raise AggregationStageError(
+                "模型未返回有效摘要",
+                stage="llm_parse",
+                retryable=False,
+                error_class="ValueError",
+            )
 
         tags = self._merge_tags(result.tags, source_slug)
         if not tags:
@@ -499,6 +607,91 @@ class AggregationService:
 
         return merged
 
+    def get_refresh_failures(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in self._refresh_failures]
+
+    def _record_refresh_failure(
+        self,
+        *,
+        source_id: str | None,
+        source_slug: str | None,
+        item_id: str | None,
+        source_url: str | None,
+        stage: str,
+        error_class: str,
+        error_message: str,
+        elapsed_ms: int | None,
+        retryable: bool,
+    ) -> None:
+        if len(self._refresh_failures) >= REFRESH_JOB_MAX_FAILURE_EVENTS:
+            return
+        self._refresh_failures.append(
+            {
+                "source_id": source_id,
+                "source_slug": source_slug,
+                "item_id": item_id,
+                "source_url": source_url,
+                "stage": self._normalize_stage(stage),
+                "error_class": (error_class or "Exception")[:96],
+                "error_message": (error_message or "未知错误")[:500],
+                "elapsed_ms": elapsed_ms,
+                "retryable": bool(retryable),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    def _classify_feed_error_stage(self, exc: Exception) -> str:
+        if isinstance(exc, AggregationStageError):
+            return self._normalize_stage(exc.stage)
+        message = self._extract_error_message(exc, fallback="")
+        lowered = message.lower()
+        if "解析" in message or "xml" in lowered or "atom" in lowered or "rss" in lowered:
+            return "feed_parse"
+        return "feed_fetch"
+
+    def _normalize_stage(self, stage: str) -> str:
+        allowed = {"feed_fetch", "feed_parse", "content_fetch", "llm_request", "llm_parse", "db_write"}
+        normalized = (stage or "").strip().lower()
+        if normalized in allowed:
+            return normalized
+        return "unknown"
+
+    def _extract_error_class(self, exc: BaseException) -> str:
+        if isinstance(exc, AggregationStageError):
+            return exc.error_class
+        return exc.__class__.__name__
+
+    def _extract_error_message(self, exc: BaseException, *, fallback: str) -> str:
+        message = str(exc).strip()
+        return (message or fallback)[:500]
+
+    def _elapsed_ms(self, started_at: datetime) -> int:
+        return max(0, int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000))
+
+    def _is_retryable_error(self, exc: BaseException, *, message: str | None = None) -> bool:
+        lowered = (message or str(exc) or "").strip().lower()
+        if not lowered:
+            lowered = exc.__class__.__name__.lower()
+
+        retryable_hints = (
+            "timed out",
+            "timeout",
+            "temporarily unavailable",
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "name or service not known",
+            "temporary failure",
+            "try again",
+            "429",
+            "502",
+            "503",
+            "504",
+            "rate limit",
+            "overloaded",
+        )
+        return any(hint in lowered for hint in retryable_hints)
+
     def _analysis_model_provider(self) -> str:
         return settings.llm_provider_name
 
@@ -520,9 +713,17 @@ class AggregationService:
                 "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
             },
         )
-        with urlopen_with_optional_proxy(request, timeout=settings.note_fetch_timeout_seconds) as response:
-            raw = response.read(settings.note_fetch_max_bytes)
-            encoding = response.headers.get_content_charset() or "utf-8"
+        try:
+            with urlopen_with_optional_proxy(request, timeout=settings.note_fetch_timeout_seconds) as response:
+                raw = response.read(settings.note_fetch_max_bytes)
+                encoding = response.headers.get_content_charset() or "utf-8"
+        except Exception as exc:  # noqa: BLE001
+            raise AggregationStageError(
+                self._extract_error_message(exc, fallback="抓取 RSS/Atom 失败"),
+                stage="feed_fetch",
+                retryable=self._is_retryable_error(exc),
+                error_class=self._extract_error_class(exc),
+            ) from exc
 
         return raw.decode(encoding, errors="ignore")
 
@@ -530,7 +731,12 @@ class AggregationService:
         try:
             root = ET.fromstring(xml_text)
         except ET.ParseError as exc:
-            raise ValueError("RSS/Atom 解析失败") from exc
+            raise AggregationStageError(
+                "RSS/Atom 解析失败",
+                stage="feed_parse",
+                retryable=False,
+                error_class="ParseError",
+            ) from exc
 
         root_name = _local_name(root.tag)
         if root_name in {"rss", "rdf", "rdf:rdf"}:
@@ -822,6 +1028,7 @@ def enqueue_aggregation_refresh_job(*, source_id: UUID | None, source_slug: str 
         "started_at": None,
         "finished_at": None,
         "error_message": None,
+        "failures": [],
     }
     _save_refresh_job(redis, payload)
     return payload
@@ -838,6 +1045,9 @@ def get_aggregation_refresh_job(job_id: str) -> dict[str, Any] | None:
         return None
     if not isinstance(payload, dict):
         return None
+    failures = payload.get("failures")
+    if not isinstance(failures, list):
+        payload["failures"] = []
     return payload
 
 
@@ -856,6 +1066,7 @@ def run_aggregation_refresh_job(*, job_id: str, source_id: str | None) -> None:
     payload["started_at"] = datetime.now(timezone.utc).isoformat()
     payload["finished_at"] = None
     payload["error_message"] = None
+    payload["failures"] = []
     _save_refresh_job(redis, payload)
 
     db = SessionLocal()
@@ -872,6 +1083,7 @@ def run_aggregation_refresh_job(*, job_id: str, source_id: str | None) -> None:
         payload["refreshed_items"] = result.refreshed_items
         payload["failed_items"] = result.failed_items
         payload["error_message"] = "聚合刷新已完成，但全部条目处理失败" if all_items_failed else None
+        payload["failures"] = service.get_refresh_failures()
         payload["finished_at"] = datetime.now(timezone.utc).isoformat()
         _save_refresh_job(redis, payload)
     except Exception as exc:  # noqa: BLE001

@@ -69,6 +69,19 @@ class AggregateRefreshJobAccepted(BaseModel):
     message: str
 
 
+class AggregateRefreshFailureItem(BaseModel):
+    source_id: str | None = None
+    source_slug: str | None = None
+    item_id: str | None = None
+    source_url: str | None = None
+    stage: Literal["feed_fetch", "feed_parse", "content_fetch", "llm_request", "llm_parse", "db_write", "unknown"]
+    error_class: str
+    error_message: str
+    elapsed_ms: int | None = None
+    retryable: bool = False
+    created_at: datetime
+
+
 class AggregateRefreshJobStatus(BaseModel):
     job_id: str
     status: Literal["queued", "running", "succeeded", "failed", "not_found"]
@@ -82,3 +95,4 @@ class AggregateRefreshJobStatus(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_message: str | None = None
+    failures: list[AggregateRefreshFailureItem] = Field(default_factory=list)

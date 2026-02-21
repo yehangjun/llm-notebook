@@ -20,6 +20,14 @@ type AdminNoteItem = {
   source_title: string | null;
   visibility: "private" | "public";
   analysis_status: "pending" | "running" | "succeeded" | "failed";
+  analysis_error: string | null;
+  failure_error_code: string | null;
+  failure_error_message: string | null;
+  failure_error_stage: "content_fetch" | "llm_request" | "llm_parse" | "unknown" | null;
+  failure_error_class: string | null;
+  failure_retryable: boolean | null;
+  failure_elapsed_ms: number | null;
+  failure_analyzed_at: string | null;
   is_deleted: boolean;
   deleted_at: string | null;
   updated_at: string;
@@ -29,6 +37,8 @@ type AdminNoteListResponse = { notes: AdminNoteItem[] };
 type AdminStatusFilter = "" | "pending" | "running" | "succeeded" | "failed";
 type AdminVisibilityFilter = "" | "private" | "public";
 type AdminDeletedFilter = "all" | "active" | "deleted";
+type AdminFailureStageFilter = "" | "content_fetch" | "llm_request" | "llm_parse" | "unknown";
+type AdminRetryableFilter = "all" | "retryable" | "non_retryable";
 
 type NotesQueryState = {
   keyword: string;
@@ -36,6 +46,8 @@ type NotesQueryState = {
   status: AdminStatusFilter;
   visibility: AdminVisibilityFilter;
   deleted: AdminDeletedFilter;
+  failureStage: AdminFailureStageFilter;
+  retryable: AdminRetryableFilter;
 };
 
 const DEFAULT_QUERY: NotesQueryState = {
@@ -44,6 +56,8 @@ const DEFAULT_QUERY: NotesQueryState = {
   status: "",
   visibility: "",
   deleted: "all",
+  failureStage: "",
+  retryable: "all",
 };
 
 const SELECT_CLASS =
@@ -58,6 +72,8 @@ export default function AdminNotesPage() {
   const [statusFilter, setStatusFilter] = useState<AdminStatusFilter>("");
   const [visibilityFilter, setVisibilityFilter] = useState<AdminVisibilityFilter>("");
   const [deletedFilter, setDeletedFilter] = useState<AdminDeletedFilter>("all");
+  const [failureStageFilter, setFailureStageFilter] = useState<AdminFailureStageFilter>("");
+  const [retryableFilter, setRetryableFilter] = useState<AdminRetryableFilter>("all");
   const [query, setQuery] = useState<NotesQueryState>(DEFAULT_QUERY);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -115,6 +131,8 @@ export default function AdminNotesPage() {
       status: statusFilter,
       visibility: visibilityFilter,
       deleted: deletedFilter,
+      failureStage: failureStageFilter,
+      retryable: retryableFilter,
     };
     setQuery(nextQuery);
     await fetchNotes(nextQuery);
@@ -153,6 +171,21 @@ export default function AdminNotesPage() {
       setActingNoteId("");
     }
   }
+
+  const filteredNotes = useMemo(() => {
+    return notes.filter((note) => {
+      if (query.failureStage && note.failure_error_stage !== query.failureStage) {
+        return false;
+      }
+      if (query.retryable === "retryable" && note.failure_retryable !== true) {
+        return false;
+      }
+      if (query.retryable === "non_retryable" && note.failure_retryable !== false) {
+        return false;
+      }
+      return true;
+    });
+  }, [notes, query.failureStage, query.retryable]);
 
   const canRender = useMemo(() => Boolean(me?.is_admin), [me]);
 
@@ -198,7 +231,7 @@ export default function AdminNotesPage() {
           </CardHeader>
 
           <CardContent className="space-y-4">
-            <form className="grid gap-2 md:grid-cols-[1fr_180px_150px_150px_150px_auto]" onSubmit={onSearch}>
+            <form className="grid gap-2 md:grid-cols-[1fr_180px_140px_140px_140px_160px_150px_auto]" onSubmit={onSearch}>
               <Input
                 placeholder="按用户ID、标题、链接、心得搜索"
                 value={keyword}
@@ -230,6 +263,22 @@ export default function AdminNotesPage() {
                 <option value="active">未删除</option>
                 <option value="deleted">已删除</option>
               </select>
+              <select
+                className={SELECT_CLASS}
+                value={failureStageFilter}
+                onChange={(e) => setFailureStageFilter(e.target.value as AdminFailureStageFilter)}
+              >
+                <option value="">全部失败阶段</option>
+                <option value="content_fetch">正文抓取</option>
+                <option value="llm_request">LLM 请求</option>
+                <option value="llm_parse">LLM 解析</option>
+                <option value="unknown">未知</option>
+              </select>
+              <select className={SELECT_CLASS} value={retryableFilter} onChange={(e) => setRetryableFilter(e.target.value as AdminRetryableFilter)}>
+                <option value="all">全部重试建议</option>
+                <option value="retryable">建议重试</option>
+                <option value="non_retryable">建议先修复配置</option>
+              </select>
               <Button type="submit">搜索</Button>
             </form>
 
@@ -237,13 +286,14 @@ export default function AdminNotesPage() {
             {success && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div>}
 
             <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[1200px] border-collapse text-sm">
+              <table className="w-full min-w-[1360px] border-collapse text-sm">
                 <thead className="bg-muted/40 text-muted-foreground">
                   <tr>
                     <th className="border-b border-border px-3 py-2 text-left font-medium">笔记ID</th>
                     <th className="border-b border-border px-3 py-2 text-left font-medium">所属用户</th>
                     <th className="border-b border-border px-3 py-2 text-left font-medium">来源</th>
                     <th className="border-b border-border px-3 py-2 text-left font-medium">状态</th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">失败诊断</th>
                     <th className="border-b border-border px-3 py-2 text-left font-medium">可见性</th>
                     <th className="border-b border-border px-3 py-2 text-left font-medium">删除状态</th>
                     <th className="border-b border-border px-3 py-2 text-left font-medium">更新时间</th>
@@ -251,7 +301,7 @@ export default function AdminNotesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {notes.map((note) => (
+                  {filteredNotes.map((note) => (
                     <tr key={note.id} className="odd:bg-white even:bg-muted/20">
                       <td className="border-b border-border px-3 py-2">{note.id}</td>
                       <td className="border-b border-border px-3 py-2">
@@ -268,6 +318,25 @@ export default function AdminNotesPage() {
                       </td>
                       <td className="border-b border-border px-3 py-2">
                         <AnalysisStatusBadge status={note.analysis_status} />
+                      </td>
+                      <td className="border-b border-border px-3 py-2">
+                        {note.failure_error_message || note.analysis_error ? (
+                          <div className="max-w-[360px] space-y-1 text-xs">
+                            <div className="font-medium text-foreground">{note.failure_error_message || note.analysis_error}</div>
+                            <div className="text-muted-foreground">
+                              {note.failure_error_code ? `错误码 ${note.failure_error_code}` : "错误码 -"} · 阶段{" "}
+                              {renderFailureStage(note.failure_error_stage)}
+                            </div>
+                            <div className="text-muted-foreground">
+                              {note.failure_error_class || "异常类型 -"} ·{" "}
+                              {note.failure_retryable === true ? "建议重试" : note.failure_retryable === false ? "建议先修复配置" : "重试建议未知"}
+                              {note.failure_elapsed_ms != null ? ` · ${note.failure_elapsed_ms}ms` : ""}
+                            </div>
+                            {note.failure_analyzed_at && <div className="text-muted-foreground">{new Date(note.failure_analyzed_at).toLocaleString()}</div>}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </td>
                       <td className="border-b border-border px-3 py-2">{note.visibility === "public" ? "公开" : "私有"}</td>
                       <td className="border-b border-border px-3 py-2">
@@ -308,4 +377,12 @@ export default function AdminNotesPage() {
       </div>
     </main>
   );
+}
+
+function renderFailureStage(stage: AdminFailureStageFilter | null): string {
+  if (stage === "content_fetch") return "正文抓取";
+  if (stage === "llm_request") return "LLM 请求";
+  if (stage === "llm_parse") return "LLM 解析";
+  if (stage === "unknown") return "未知";
+  return "-";
 }

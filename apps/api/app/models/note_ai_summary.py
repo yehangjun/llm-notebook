@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +34,10 @@ class NoteAISummary(Base):
     estimated_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), nullable=True)
     raw_response_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    error_class: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    retryable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    elapsed_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     analyzed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
