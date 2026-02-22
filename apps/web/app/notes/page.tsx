@@ -1,65 +1,55 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import AnalysisStatusBadge from "../../components/AnalysisStatusBadge";
 import CreatorProfileHoverCard from "../../components/CreatorProfileHoverCard";
 import InteractionCountButton from "../../components/InteractionCountButton";
-import { Badge } from "../../components/ui/badge";
+import { Badge, badgeVariants } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
-import { Input } from "../../components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { apiRequest } from "../../lib/api";
 import { clearAuth, UserPublic } from "../../lib/auth";
 import { FeedItem, FeedListResponse } from "../../lib/feed";
+import { cn } from "../../lib/utils";
 import { NoteListItem, NoteListResponse } from "../../lib/notes";
 
 type NotesTab = "notes" | "bookmarks";
 type StatusFilter = "" | "pending" | "running" | "succeeded" | "failed";
 type VisibilityFilter = "" | "private" | "public";
 
-const SELECT_CLASS =
-  "flex h-10 w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20";
 const TITLE_CLAMP_CLASS =
   "overflow-hidden text-left text-base font-semibold text-foreground transition-colors hover:text-primary [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]";
 const SUMMARY_CLAMP_CLASS =
   "overflow-hidden text-sm leading-6 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]";
 
 export default function NotesPage() {
+  return (
+    <Suspense fallback={<NotesPageFallback />}>
+      <NotesPageContent />
+    </Suspense>
+  );
+}
+
+function NotesPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<NotesTab>("notes");
   const [currentUser, setCurrentUser] = useState<UserPublic | null>(null);
   const [notes, setNotes] = useState<NoteListItem[]>([]);
   const [bookmarks, setBookmarks] = useState<FeedItem[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState("");
 
-  useEffect(() => {
-    const query = new URLSearchParams(window.location.search);
-    const initialTab = parseNotesTab(query.get("tab"));
-    apiRequest<UserPublic>("/me", {}, true)
-      .then(async (user) => {
-        setCurrentUser(user);
-        setTab(initialTab);
-        if (initialTab === "bookmarks") {
-          await fetchBookmarks();
-          return;
-        }
-        await fetchNotes({ status: "", visibility: "", keyword: "" });
-      })
-      .catch(() => {
-        clearAuth();
-        router.push("/auth");
-      });
-  }, [router]);
-
-  async function fetchNotes({
+  const fetchNotes = useCallback(async function fetchNotes({
     status,
     visibility,
     keyword: kw,
@@ -83,9 +73,9 @@ export default function NotesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function fetchBookmarks() {
+  const fetchBookmarks = useCallback(async function fetchBookmarks() {
     setLoading(true);
     setError("");
     try {
@@ -96,30 +86,52 @@ export default function NotesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function switchTab(nextTab: NotesTab) {
-    if (tab === nextTab) return;
-    setTab(nextTab);
-    syncTabQuery(nextTab);
-    if (nextTab === "notes") {
-      await fetchNotes({
-        status: statusFilter,
-        visibility: visibilityFilter,
-        keyword,
+  useEffect(() => {
+    apiRequest<UserPublic>("/me", {}, true)
+      .then((user) => {
+        setCurrentUser(user);
+        setAuthenticated(true);
+      })
+      .catch(() => {
+        clearAuth();
+        router.push("/auth");
       });
+  }, [router]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const nextTab = parseNotesTab(searchParams.get("tab"));
+    const nextStatus = parseStatusFilter(searchParams.get("status"));
+    const nextVisibility = parseVisibilityFilter(searchParams.get("visibility"));
+    const nextKeyword = (searchParams.get("keyword") || "").trim();
+    const nextTag = normalizeTagFilter(searchParams.get("tag"));
+    setTab(nextTab);
+    setStatusFilter(nextStatus);
+    setVisibilityFilter(nextVisibility);
+    setKeyword(nextKeyword);
+    setTagFilter(nextTag);
+    if (nextTab === "bookmarks") {
+      void fetchBookmarks();
       return;
     }
-    await fetchBookmarks();
+    void fetchNotes({
+      status: nextStatus,
+      visibility: nextVisibility,
+      keyword: nextKeyword,
+    });
+  }, [authenticated, fetchBookmarks, fetchNotes, searchParams]);
+
+  function switchTab(nextTab: NotesTab) {
+    if (tab === nextTab) return;
+    pushQuery(nextTab, statusFilter, visibilityFilter, keyword, tagFilter);
   }
 
-  async function onSearch(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    await fetchNotes({
-      status: statusFilter,
-      visibility: visibilityFilter,
-      keyword,
-    });
+  function onTagClick(tagValue: string) {
+    const nextTag = normalizeTagFilter(tagValue);
+    if (!nextTag) return;
+    pushQuery(tab, statusFilter, visibilityFilter, keyword, nextTag === tagFilter ? "" : nextTag);
   }
 
   async function onToggleBookmark(item: FeedItem) {
@@ -173,10 +185,20 @@ export default function NotesPage() {
     }
   }
 
-  function syncTabQuery(nextTab: NotesTab) {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
+  function pushQuery(
+    nextTab: NotesTab,
+    nextStatus: StatusFilter,
+    nextVisibility: VisibilityFilter,
+    nextKeyword: string,
+    nextTag: string,
+  ) {
+    const params = new URLSearchParams();
     params.set("tab", nextTab);
+    if (nextStatus) params.set("status", nextStatus);
+    if (nextVisibility) params.set("visibility", nextVisibility);
+    if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+    const normalizedTag = normalizeTagFilter(nextTag);
+    if (normalizedTag) params.set("tag", normalizedTag);
     router.replace(`/notes?${params.toString()}`);
   }
 
@@ -201,6 +223,14 @@ export default function NotesPage() {
     return new Date(item.published_at ?? item.updated_at).toLocaleString();
   }
 
+  const visibleNotes = tagFilter
+    ? notes.filter((note) => note.tags.some((item) => normalizeTagFilter(item) === tagFilter))
+    : notes;
+
+  const visibleBookmarks = tagFilter
+    ? bookmarks.filter((item) => item.tags.some((tagItem) => normalizeTagFilter(tagItem) === tagFilter))
+    : bookmarks;
+
   return (
     <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
       <div className="mx-auto w-full max-w-[1080px]">
@@ -218,48 +248,49 @@ export default function NotesPage() {
                 <TabsTrigger value="bookmarks">收藏</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="notes" className="space-y-4">
-                <form className="grid gap-2 md:grid-cols-[1fr_180px_180px_auto]" onSubmit={onSearch}>
-                  <Input
-                    placeholder="按标题、链接、心得搜索"
-                    value={keyword}
-                    onChange={(e) => setKeyword(e.target.value)}
-                  />
-                  <select
-                    className={SELECT_CLASS}
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              {!!tagFilter && (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+                  <span className="text-sm text-muted-foreground">标签筛选：</span>
+                  <Badge variant="muted">#{tagFilter}</Badge>
+                  <Button
+                    className="ml-auto"
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    onClick={() => pushQuery(tab, statusFilter, visibilityFilter, keyword, "")}
                   >
-                    <option value="">全部状态</option>
-                    <option value="pending">待分析</option>
-                    <option value="running">分析中</option>
-                    <option value="succeeded">成功</option>
-                    <option value="failed">失败</option>
-                  </select>
-                  <select
-                    className={SELECT_CLASS}
-                    value={visibilityFilter}
-                    onChange={(e) => setVisibilityFilter(e.target.value as VisibilityFilter)}
-                  >
-                    <option value="">全部可见性</option>
-                    <option value="private">私有</option>
-                    <option value="public">公开</option>
-                  </select>
-                  <Button variant="secondary" type="submit">
-                    查询
+                    清除标签
                   </Button>
-                </form>
+                </div>
+              )}
+
+              <TabsContent value="notes" className="space-y-4">
+                {!!keyword && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+                    <span className="text-sm text-muted-foreground">关键词：</span>
+                    <span className="text-sm font-medium text-foreground">{keyword}</span>
+                    <Button
+                      className="ml-auto"
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      onClick={() => pushQuery("notes", statusFilter, visibilityFilter, "", tagFilter)}
+                    >
+                      清除关键词
+                    </Button>
+                  </div>
+                )}
 
                 {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
                 {loading && (
                   <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">加载中...</div>
                 )}
-                {!loading && notes.length === 0 && (
+                {!loading && visibleNotes.length === 0 && (
                   <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">暂无笔记</div>
                 )}
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  {notes.map((note) => (
+                  {visibleNotes.map((note) => (
                     <article key={note.id} className="flex h-full flex-col justify-between rounded-lg border border-border bg-white p-4">
                       <div className="space-y-3">
                         <button type="button" className={TITLE_CLAMP_CLASS} onClick={() => openNote(note.id)}>
@@ -286,9 +317,18 @@ export default function NotesPage() {
                         {!!note.tags.length && (
                           <div className="flex flex-wrap gap-1.5">
                             {note.tags.map((item) => (
-                              <Badge key={`${note.id}-${item}`} variant="muted">
+                              <button
+                                key={`${note.id}-${item}`}
+                                type="button"
+                                className={cn(
+                                  badgeVariants({ variant: "muted" }),
+                                  "cursor-pointer border transition-colors hover:border-border hover:bg-muted/80",
+                                  normalizeTagFilter(item) === tagFilter && "border-border bg-muted/80 text-foreground",
+                                )}
+                                onClick={() => onTagClick(item)}
+                              >
                                 #{item}
-                              </Badge>
+                              </button>
                             ))}
                           </div>
                         )}
@@ -318,12 +358,12 @@ export default function NotesPage() {
                 {loading && (
                   <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">加载中...</div>
                 )}
-                {!loading && bookmarks.length === 0 && (
+                {!loading && visibleBookmarks.length === 0 && (
                   <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">暂无收藏</div>
                 )}
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  {bookmarks.map((item) => (
+                  {visibleBookmarks.map((item) => (
                     <article
                       key={`${item.item_type}-${item.id}`}
                       className="flex h-full flex-col justify-between rounded-lg border border-border bg-white p-4"
@@ -350,9 +390,18 @@ export default function NotesPage() {
                         {!!item.tags.length && (
                           <div className="flex flex-wrap gap-1.5">
                             {item.tags.map((tagItem) => (
-                              <Badge key={`${item.item_type}-${item.id}-${tagItem}`} variant="muted">
+                              <button
+                                key={`${item.item_type}-${item.id}-${tagItem}`}
+                                type="button"
+                                className={cn(
+                                  badgeVariants({ variant: "muted" }),
+                                  "cursor-pointer border transition-colors hover:border-border hover:bg-muted/80",
+                                  normalizeTagFilter(tagItem) === tagFilter && "border-border bg-muted/80 text-foreground",
+                                )}
+                                onClick={() => onTagClick(tagItem)}
+                              >
                                 #{tagItem}
-                              </Badge>
+                              </button>
                             ))}
                           </div>
                         )}
@@ -391,6 +440,20 @@ export default function NotesPage() {
   );
 }
 
+function NotesPageFallback() {
+  return (
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[1080px]">
+        <Card>
+          <CardContent className="py-10">
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">加载中...</div>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
+  );
+}
+
 function SummaryBlock({
   variant,
   content,
@@ -412,4 +475,23 @@ function SummaryBlock({
 function parseNotesTab(raw: string | null): NotesTab {
   if (raw === "bookmarks") return "bookmarks";
   return "notes";
+}
+
+function parseStatusFilter(raw: string | null): StatusFilter {
+  if (raw === "pending") return "pending";
+  if (raw === "running") return "running";
+  if (raw === "succeeded") return "succeeded";
+  if (raw === "failed") return "failed";
+  return "";
+}
+
+function parseVisibilityFilter(raw: string | null): VisibilityFilter {
+  if (raw === "private") return "private";
+  if (raw === "public") return "public";
+  return "";
+}
+
+function normalizeTagFilter(raw: string | null): string {
+  if (!raw) return "";
+  return raw.trim().replace(/^#+/, "").toLowerCase();
 }

@@ -1,18 +1,18 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import CreatorProfileHoverCard from "../../components/CreatorProfileHoverCard";
 import InteractionCountButton from "../../components/InteractionCountButton";
-import { Badge } from "../../components/ui/badge";
+import { Badge, badgeVariants } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
-import { Input } from "../../components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { apiRequest } from "../../lib/api";
 import { clearAuth, UserPublic } from "../../lib/auth";
 import { FeedItem, FeedListResponse } from "../../lib/feed";
+import { cn } from "../../lib/utils";
 
 type FeedScope = "following" | "unfollowed";
 
@@ -22,39 +22,26 @@ const SUMMARY_CLAMP_CLASS =
   "overflow-hidden text-sm leading-6 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]";
 
 export default function FeedPage() {
+  return (
+    <Suspense fallback={<FeedPageFallback />}>
+      <FeedPageContent />
+    </Suspense>
+  );
+}
+
+function FeedPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [scope, setScope] = useState<FeedScope>("following");
   const [tag, setTag] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actingId, setActingId] = useState("");
 
-  useEffect(() => {
-    const query = new URLSearchParams(window.location.search);
-    const nextScope = parseScope(query.get("scope"));
-    const nextTag = (query.get("tag") || "").trim();
-    const nextKeyword = (query.get("keyword") || "").trim();
-
-    apiRequest<UserPublic>("/me", {}, true)
-      .then(async () => {
-        setScope(nextScope);
-        setTag(nextTag);
-        setKeyword(nextKeyword);
-        await fetchFeed({
-          nextScope,
-          nextTag,
-          nextKeyword,
-        });
-      })
-      .catch(() => {
-        clearAuth();
-        router.push("/auth");
-      });
-  }, [router]);
-
-  async function fetchFeed({
+  const fetchFeed = useCallback(async function fetchFeed({
     nextScope,
     nextTag,
     nextKeyword,
@@ -78,26 +65,51 @@ export default function FeedPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    apiRequest<UserPublic>("/me", {}, true)
+      .then(() => {
+        setAuthenticated(true);
+      })
+      .catch(() => {
+        clearAuth();
+        router.push("/auth");
+      });
+  }, [router]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const nextScope = parseScope(searchParams.get("scope"));
+    const nextTag = normalizeTagFilter(searchParams.get("tag"));
+    const nextKeyword = (searchParams.get("keyword") || "").trim();
+    setScope(nextScope);
+    setTag(nextTag);
+    setKeyword(nextKeyword);
+    void fetchFeed({
+      nextScope,
+      nextTag,
+      nextKeyword,
+    });
+  }, [authenticated, fetchFeed, searchParams]);
 
   function pushQuery(nextScope: FeedScope, nextTag: string, nextKeyword: string) {
     const params = new URLSearchParams();
     params.set("scope", nextScope);
-    if (nextTag.trim()) params.set("tag", nextTag.trim().toLowerCase());
+    const normalizedTag = normalizeTagFilter(nextTag);
+    if (normalizedTag) params.set("tag", normalizedTag);
     if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
     router.replace(`/feed?${params.toString()}`);
   }
 
-  async function onSearch(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    await fetchFeed({ nextScope: scope, nextTag: tag, nextKeyword: keyword });
-    pushQuery(scope, tag, keyword);
+  function onTagClick(tagValue: string) {
+    const nextTag = normalizeTagFilter(tagValue);
+    if (!nextTag) return;
+    pushQuery(scope, nextTag === tag ? "" : nextTag, keyword);
   }
 
-  async function switchScope(nextScope: FeedScope) {
+  function switchScope(nextScope: FeedScope) {
     if (scope === nextScope) return;
-    setScope(nextScope);
-    await fetchFeed({ nextScope, nextTag: tag, nextKeyword: keyword });
     pushQuery(nextScope, tag, keyword);
   }
 
@@ -186,21 +198,31 @@ export default function FeedPage() {
               </TabsList>
             </Tabs>
 
-            <form className="grid gap-2 md:grid-cols-[1fr_1fr_auto]" onSubmit={onSearch}>
-              <Input
-                placeholder="关键词（标题/链接/创作者/摘要）"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-              />
-              <Input
-                placeholder="按标签筛选（例如：#openai 或 #大模型）"
-                value={tag}
-                onChange={(e) => setTag(e.target.value)}
-              />
-              <Button variant="secondary" type="submit">
-                筛选
-              </Button>
-            </form>
+            {!!keyword && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+                <span className="text-sm text-muted-foreground">关键词：</span>
+                <span className="text-sm font-medium text-foreground">{keyword}</span>
+                <Button
+                  className="ml-auto"
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  onClick={() => pushQuery(scope, tag, "")}
+                >
+                  清除关键词
+                </Button>
+              </div>
+            )}
+
+            {!!tag && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+                <span className="text-sm text-muted-foreground">标签筛选：</span>
+                <Badge variant="muted">#{tag}</Badge>
+                <Button className="ml-auto" variant="ghost" size="sm" type="button" onClick={() => pushQuery(scope, "", keyword)}>
+                  清除标签
+                </Button>
+              </div>
+            )}
 
             {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
             {loading && <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">加载中...</div>}
@@ -236,9 +258,18 @@ export default function FeedPage() {
                     {!!item.tags.length && (
                       <div className="flex flex-wrap gap-1.5">
                         {item.tags.map((tagItem) => (
-                          <Badge key={`${item.item_type}-${item.id}-${tagItem}`} variant="muted">
+                          <button
+                            key={`${item.item_type}-${item.id}-${tagItem}`}
+                            type="button"
+                            className={cn(
+                              badgeVariants({ variant: "muted" }),
+                              "cursor-pointer border transition-colors hover:border-border hover:bg-muted/80",
+                              normalizeTagFilter(tagItem) === tag && "border-border bg-muted/80 text-foreground",
+                            )}
+                            onClick={() => onTagClick(tagItem)}
+                          >
                             #{tagItem}
-                          </Badge>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -276,9 +307,28 @@ export default function FeedPage() {
   );
 }
 
+function FeedPageFallback() {
+  return (
+    <main className="min-h-[calc(100vh-84px)] px-5 pb-10 pt-6">
+      <div className="mx-auto w-full max-w-[1080px]">
+        <Card>
+          <CardContent className="py-10">
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">加载中...</div>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
+  );
+}
+
 function parseScope(raw: string | null): FeedScope {
   if (raw === "unfollowed") return "unfollowed";
   return "following";
+}
+
+function normalizeTagFilter(raw: string | null): string {
+  if (!raw) return "";
+  return raw.trim().replace(/^#+/, "").toLowerCase();
 }
 
 function SummaryBlock({

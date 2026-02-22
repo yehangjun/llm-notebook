@@ -156,14 +156,6 @@ export default function FeedItemDetailPage() {
               <Button variant="secondary" size="sm" type="button" onClick={() => router.push(returnPath)}>
                 返回
               </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() => window.open(item.source_url, "_blank", "noopener,noreferrer")}
-              >
-                原文链接
-              </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">

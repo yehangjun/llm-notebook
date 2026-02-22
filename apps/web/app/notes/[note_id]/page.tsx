@@ -184,7 +184,7 @@ export default function NoteDetailPage() {
                 返回
               </Button>
               <Button size="sm" type="button" onClick={() => router.push(writePath)}>
-                写作
+                编辑
               </Button>
             </div>
           </CardHeader>
