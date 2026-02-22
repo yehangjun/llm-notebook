@@ -41,9 +41,16 @@ export default function NotesPage() {
   const [actingId, setActingId] = useState("");
 
   useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const initialTab = parseNotesTab(query.get("tab"));
     apiRequest<UserPublic>("/me", {}, true)
       .then(async (user) => {
         setCurrentUser(user);
+        setTab(initialTab);
+        if (initialTab === "bookmarks") {
+          await fetchBookmarks();
+          return;
+        }
         await fetchNotes({ status: "", visibility: "", keyword: "" });
       })
       .catch(() => {
@@ -94,6 +101,7 @@ export default function NotesPage() {
   async function switchTab(nextTab: NotesTab) {
     if (tab === nextTab) return;
     setTab(nextTab);
+    syncTabQuery(nextTab);
     if (nextTab === "notes") {
       await fetchNotes({
         status: statusFilter,
@@ -165,8 +173,28 @@ export default function NotesPage() {
     }
   }
 
+  function syncTabQuery(nextTab: NotesTab) {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", nextTab);
+    router.replace(`/notes?${params.toString()}`);
+  }
+
+  function buildReturnToPath(nextTab: NotesTab): string {
+    if (typeof window === "undefined") return `/notes?tab=${nextTab}`;
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", nextTab);
+    return `/notes?${params.toString()}`;
+  }
+
+  function openNote(noteId: string) {
+    const returnTo = buildReturnToPath("notes");
+    router.push(`/notes/${noteId}?return_to=${encodeURIComponent(returnTo)}`);
+  }
+
   function openBookmark(item: FeedItem) {
-    router.push(`/feed/items/${item.item_type}/${item.id}`);
+    const returnTo = buildReturnToPath("bookmarks");
+    router.push(`/feed/items/${item.item_type}/${item.id}?return_to=${encodeURIComponent(returnTo)}`);
   }
 
   function formatPublishedAt(item: { published_at: string | null; updated_at: string }) {
@@ -234,7 +262,7 @@ export default function NotesPage() {
                   {notes.map((note) => (
                     <article key={note.id} className="flex h-full flex-col justify-between rounded-lg border border-border bg-white p-4">
                       <div className="space-y-3">
-                        <button type="button" className={TITLE_CLAMP_CLASS} onClick={() => router.push(`/notes/${note.id}`)}>
+                        <button type="button" className={TITLE_CLAMP_CLASS} onClick={() => openNote(note.id)}>
                           {note.source_title || note.source_url}
                         </button>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
@@ -379,4 +407,9 @@ function SummaryBlock({
       <p className={SUMMARY_CLAMP_CLASS}>{content}</p>
     </div>
   );
+}
+
+function parseNotesTab(raw: string | null): NotesTab {
+  if (raw === "bookmarks") return "bookmarks";
+  return "notes";
 }

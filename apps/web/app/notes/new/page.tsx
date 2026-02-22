@@ -51,7 +51,7 @@ export default function NewNotePage() {
         },
         true,
       );
-      router.push(`/notes/${data.note.id}`);
+      router.push(`/notes/${data.note.id}?return_to=${encodeURIComponent("/notes?tab=notes")}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建失败");
     } finally {

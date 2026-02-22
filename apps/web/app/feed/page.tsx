@@ -152,8 +152,16 @@ export default function FeedPage() {
     }
   }
 
+  function buildReturnToPath() {
+    if (typeof window === "undefined") {
+      return `/feed?scope=${scope}`;
+    }
+    return `${window.location.pathname}${window.location.search}`;
+  }
+
   function openDetail(item: FeedItem) {
-    router.push(`/feed/items/${item.item_type}/${item.id}`);
+    const returnTo = buildReturnToPath();
+    router.push(`/feed/items/${item.item_type}/${item.id}?return_to=${encodeURIComponent(returnTo)}`);
   }
 
   function formatPublishedAt(item: FeedItem) {

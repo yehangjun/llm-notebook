@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import AnalysisStatusBadge from "../../../../../components/AnalysisStatusBadge";
@@ -13,9 +13,11 @@ import { FeedDetailResponse } from "../../../../../lib/feed";
 
 export default function FeedItemDetailPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const params = useParams<{ item_type: string; item_id: string }>();
   const itemType = params.item_type;
   const itemId = params.item_id;
+  const returnPath = resolveReturnPath(searchParams.get("return_to"), "/feed?scope=following");
 
   const [detail, setDetail] = useState<FeedDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -125,7 +127,7 @@ export default function FeedItemDetailPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error || "内容不存在"}</div>
-              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/feed")}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push(returnPath)}>
                 返回广场
               </Button>
             </CardContent>
@@ -143,7 +145,7 @@ export default function FeedItemDetailPage() {
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle className="text-2xl">广场详情</CardTitle>
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/feed")}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push(returnPath)}>
                 返回广场
               </Button>
               <Button
@@ -253,4 +255,10 @@ export default function FeedItemDetailPage() {
       </div>
     </main>
   );
+}
+
+function resolveReturnPath(raw: string | null, fallbackPath: string): string {
+  if (!raw) return fallbackPath;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return fallbackPath;
+  return raw;
 }

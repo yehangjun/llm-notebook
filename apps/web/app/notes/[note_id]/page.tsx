@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import AnalysisStatusBadge from "../../../components/AnalysisStatusBadge";
@@ -23,7 +23,9 @@ const TEXTAREA_CLASS =
 export default function NoteDetailPage() {
   const params = useParams<{ note_id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const noteId = params.note_id;
+  const returnPath = resolveReturnPath(searchParams.get("return_to"), "/notes?tab=notes");
 
   const [note, setNote] = useState<NoteDetail | null>(null);
   const [noteBody, setNoteBody] = useState("");
@@ -129,7 +131,7 @@ export default function NoteDetailPage() {
     setSuccess("");
     try {
       await apiRequest<{ message: string }>(`/notes/${noteId}`, { method: "DELETE" }, true);
-      router.push("/notes");
+      router.push(returnPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败");
     } finally {
@@ -165,7 +167,7 @@ export default function NoteDetailPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error || "笔记不存在"}</div>
-              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/notes")}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push(returnPath)}>
                 返回列表
               </Button>
             </CardContent>
@@ -182,7 +184,7 @@ export default function NoteDetailPage() {
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle className="text-2xl">学习笔记详情</CardTitle>
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/notes")}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => router.push(returnPath)}>
                 返回列表
               </Button>
               <Button variant="secondary" size="sm" type="button" onClick={onReanalyze} disabled={reanalyzing}>
@@ -324,4 +326,10 @@ function parseTags(input: string): string[] {
     .map((item) => item.trim().replace(/^#+/, "").toLowerCase())
     .filter(Boolean);
   return [...new Set(chunks)].slice(0, MAX_NOTE_TAGS);
+}
+
+function resolveReturnPath(raw: string | null, fallbackPath: string): string {
+  if (!raw) return fallbackPath;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return fallbackPath;
+  return raw;
 }
