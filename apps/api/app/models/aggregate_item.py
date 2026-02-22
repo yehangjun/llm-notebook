@@ -40,7 +40,6 @@ class AggregateItem(Base):
     analysis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_text_zh: Mapped[str | None] = mapped_column(Text, nullable=True)
-    key_points_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(128), nullable=True)

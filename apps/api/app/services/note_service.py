@@ -283,7 +283,6 @@ class NoteService:
             output_tags=result.tags,
             output_tags_zh=result.tags_zh,
             summary_text=result.summary_text,
-            key_points=result.tags,
             model_provider=result.model_provider,
             model_name=result.model_name,
             model_version=result.model_version,
@@ -333,7 +332,6 @@ class NoteService:
             output_tags=None,
             output_tags_zh=None,
             summary_text=None,
-            key_points=None,
             model_provider=self._analysis_model_provider(),
             model_name=self._analysis_model_name(),
             model_version=self._analysis_model_version(),
@@ -451,7 +449,7 @@ class NoteService:
             translated_title = translated_title or original_title
             translated_summary = translated_summary or merged_summary
 
-        merged_tags = summary.output_tags_json or summary.key_points_json or []
+        merged_tags = summary.output_tags_json or []
         translated_tags = summary.output_tags_zh_json
 
         return NoteSummaryPublic(
@@ -502,7 +500,7 @@ class NoteService:
         if not latest_summary:
             return note_tags
 
-        summary_original_tags = latest_summary.output_tags_json or latest_summary.key_points_json or []
+        summary_original_tags = latest_summary.output_tags_json or []
         summary_translated_tags = latest_summary.output_tags_zh_json
         summary_display_tags = pick_localized_tags(
             prefer_zh=prefer_zh,

@@ -20,7 +20,6 @@ def test_display_tags_for_note_prefers_user_tags_when_present() -> None:
     latest_summary = SimpleNamespace(
         source_language="non-zh",
         output_tags_json=["openai", "agent"],
-        key_points_json=[],
         output_tags_zh_json=["开放ai", "智能体"],
     )
 
@@ -35,7 +34,6 @@ def test_display_tags_for_note_keeps_user_note_tags_when_different_from_summary(
     latest_summary = SimpleNamespace(
         source_language="non-zh",
         output_tags_json=["openai", "agent"],
-        key_points_json=[],
         output_tags_zh_json=["开放ai", "智能体"],
     )
 
@@ -50,7 +48,6 @@ def test_display_tags_for_note_falls_back_to_auto_tags_when_user_tags_absent() -
     latest_summary = SimpleNamespace(
         source_language="non-zh",
         output_tags_json=["openai", "agent"],
-        key_points_json=[],
         output_tags_zh_json=["开放ai", "智能体"],
     )
 

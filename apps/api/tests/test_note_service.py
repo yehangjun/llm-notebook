@@ -58,7 +58,6 @@ def test_run_analysis_job_success_updates_note_and_creates_summary() -> None:
     kwargs = service.note_repo.create_summary.call_args.kwargs
     assert kwargs["status"] == "succeeded"
     assert kwargs["output_tags_zh"] == ["开放ai", "智能体"]
-    assert kwargs["key_points"] == ["openai", "agent"]
 
 
 def test_run_analysis_job_routes_analysis_error_to_failed_marker() -> None:

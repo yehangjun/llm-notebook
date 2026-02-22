@@ -363,16 +363,6 @@ class FeedService:
                 prefer_zh=prefer_zh,
                 note_summary_cache={note.id: latest_summary},
             )[0]
-            summary_tags = (
-                pick_localized_tags(
-                    prefer_zh=prefer_zh,
-                    source_language=latest_summary.source_language,
-                    original_tags=(latest_summary.output_tags_json or latest_summary.key_points_json or []),
-                    zh_tags=latest_summary.output_tags_zh_json,
-                )
-                if latest_summary
-                else []
-            )
             if latest_summary and latest_summary.source_language == "zh":
                 summary_zh = (
                     latest_summary.output_summary_zh
@@ -388,7 +378,6 @@ class FeedService:
                     original=(latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None,
                     zh=summary_zh,
                 ),
-                key_points=summary_tags or (latest_summary.key_points_json if latest_summary else []) or [],
                 note_body_md=note.note_body_md,
                 analysis_error=(latest_summary.error_message if latest_summary else None) or note.analysis_error,
                 model_provider=latest_summary.model_provider if latest_summary else None,
@@ -426,7 +415,6 @@ class FeedService:
                     original=aggregate.summary_text,
                     zh=aggregate.summary_text_zh,
                 ),
-                key_points=aggregate.key_points_json or [],
                 note_body_md=None,
                 analysis_error=aggregate.analysis_error,
                 model_provider=aggregate.model_provider,
@@ -796,7 +784,7 @@ class FeedService:
         if not latest_summary:
             return note_tags
 
-        summary_original_tags = self._normalize_tag_list(latest_summary.output_tags_json or latest_summary.key_points_json or [])
+        summary_original_tags = self._normalize_tag_list(latest_summary.output_tags_json or [])
         summary_translated_tags = self._normalize_tag_list(latest_summary.output_tags_zh_json)
         summary_display_tags = pick_localized_tags(
             prefer_zh=prefer_zh,

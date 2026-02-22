@@ -31,7 +31,6 @@ from app.schemas.feed import RefreshAggregatesResponse
 
 DEFAULT_PORTS = {"http": 80, "https": 443}
 MAX_ANALYSIS_TAGS = 5
-MAX_KEY_POINTS = 3
 AGGREGATION_SOURCES_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "aggregation_sources.json"
 SKIP_LINK_PREFIXES = ("javascript:", "mailto:", "tel:", "#")
 SKIP_FILE_SUFFIXES = {
@@ -382,7 +381,6 @@ class AggregationService:
             analysis_error=None,
             summary_text=None,
             summary_text_zh=None,
-            key_points_json=[],
             model_provider=self._analysis_model_provider(),
             model_name=self._analysis_model_name(),
             model_version=self._analysis_model_version(),
@@ -453,7 +451,6 @@ class AggregationService:
             item.summary_text_zh = result.summary_text_zh
             item.tags_json = result.tags
             item.tags_zh_json = result.tags_zh
-            item.key_points_json = self._extract_key_points(content=content, summary_text=result.summary_text)
             item.analysis_status = "succeeded"
             item.analysis_error = None
             item.model_provider = result.model_provider
@@ -566,21 +563,6 @@ class AggregationService:
             model_name=result.model_name or settings.llm_model_name,
             model_version=None,
         )
-
-    def _extract_key_points(self, *, content: str, summary_text: str) -> list[str]:
-        key_points: list[str] = []
-        for piece in re.split(r"[。！？.!?]", content):
-            line = piece.strip()
-            if len(line) < 12:
-                continue
-            key_points.append(line[:96])
-            if len(key_points) >= MAX_KEY_POINTS:
-                break
-        if not key_points:
-            key_points = [summary_text[:96]]
-        while len(key_points) < MAX_KEY_POINTS:
-            key_points.append("建议结合原文阅读全文，避免断章取义。")
-        return key_points[:MAX_KEY_POINTS]
 
     def _merge_tags(self, *groups: Any) -> list[str]:
         merged: list[str] = []

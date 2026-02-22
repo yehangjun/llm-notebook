@@ -237,13 +237,6 @@ export default function FeedItemDetailPage() {
               ) : (
                 <div className="text-sm text-muted-foreground">暂无摘要</div>
               )}
-              {!!detail.key_points.length && (
-                <ul className="ml-5 list-disc space-y-1 text-sm text-foreground">
-                  {detail.key_points.map((point, idx) => (
-                    <li key={`${item.id}-${idx}`}>{point}</li>
-                  ))}
-                </ul>
-              )}
               {(detail.model_provider || detail.model_name || detail.model_version || detail.analyzed_at) && (
                 <div className="text-xs text-muted-foreground">
                   模型：{detail.model_provider || "-"} / {detail.model_name || "-"} / {detail.model_version || "-"} ·
