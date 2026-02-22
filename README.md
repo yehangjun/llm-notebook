@@ -59,6 +59,22 @@ docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --build
 - 外部流量统一走 Caddy（80/443），`api/db/redis/web` 不直接暴露公网端口。
 - 默认前端 API 地址为同域路径 `/api/v1`，无需让浏览器直连 `8000`。
 
+### 运维脚本（生产）
+
+1. 更新部署（拉取最新代码 + 重建 + 重启）：
+```bash
+./infra/scripts/prod-update.sh
+```
+- 默认使用当前分支，也可指定分支：`./infra/scripts/prod-update.sh main`
+- 脚本会执行 `docker compose ... up -d --build`，并在 API 启动时自动跑 Alembic migration。
+
+2. 清空业务数据并重置（删除 PostgreSQL/Redis 数据卷后重建）：
+```bash
+./infra/scripts/prod-reset-data.sh --yes
+```
+- 默认保留 Caddy 证书数据。
+- 如需同时删除证书并重新签发：`RESET_CERTS=1 ./infra/scripts/prod-reset-data.sh --yes`
+
 ## API 前缀
 
 - `/api/v1/auth/register`
