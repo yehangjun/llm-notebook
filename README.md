@@ -1,5 +1,11 @@
 # Prism V2
 
+一个实验项目，尝试用Codex完成一个有一定复杂度的原型产品。
+
+我的输入几乎都在`ROOT.md`和`SPEC.md`两个文档里，另外还有对话过程中的指令，其它文件都是Codex产生的。
+
+Codex的配置是：GPT-5.3-Codex / Extra High
+
 > Everything about AI
 
 根据 `SPEC.md` 实现的最小可用骨架，包含：

@@ -1,10 +1,10 @@
 # Yet Another Notebook V2
 
-与Code模型协作的原则：
-- IDEA.md：根需求，由我来生产
-- SPEC.md：概要设计文档，根需求已有内容不重复，主要由我和Code模型协作生产，尽量简洁，不涉及实现细节
-- DESIGN.md：详细设计文档，由Code模型生产，我会Review但不会直接修改
-- 其它都由Code模型生产，我会Review但不会直接修改
+与Coding模型协作的原则：
+- ROOT.md：根需求，由我来生产
+- SPEC.md：概要设计文档，根需求已有内容不重复，主要由我和Coding模型协作生产，尽量简洁，不涉及实现细节
+- DESIGN.md：详细设计文档，由Coding模型生产，我会Review但不会直接修改
+- 其它都由Coding模型生产，我会Review但不会直接修改
 
 产品名：Prism
 口号：Everything about AI
