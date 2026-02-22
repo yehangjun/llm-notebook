@@ -64,7 +64,7 @@ class FeedService:
         note_summary_cache = self._load_latest_note_summaries([note.id for note in notes])
         aggregates = self._load_aggregate_items(fetch_limit=fetch_limit)
 
-        mixed: list[tuple[str, Note | AggregateItem, datetime]] = []
+        mixed: list[tuple[str, Note | AggregateItem, datetime, str]] = []
         for note in notes:
             if note.user_id == user.id:
                 continue
@@ -97,10 +97,8 @@ class FeedService:
                 (
                     "note",
                     note,
-                    self._resolve_feed_sort_at(
-                        published_at=latest_summary.published_at if latest_summary else None,
-                        updated_at=note.updated_at,
-                    ),
+                    note.updated_at,
+                    note.source_url_normalized,
                 )
             )
 
@@ -135,11 +133,22 @@ class FeedService:
                         published_at=aggregate.published_at,
                         updated_at=aggregate.updated_at,
                     ),
+                    aggregate.source_url_normalized,
                 )
             )
 
         mixed.sort(key=lambda item: (item[2], item[1].updated_at), reverse=True)
-        picked = [(kind, record) for kind, record, _ in mixed[offset : offset + limit]]
+        deduped: list[tuple[str, Note | AggregateItem]] = []
+        seen_urls: set[str] = set()
+        for kind, record, _, source_url_normalized in mixed:
+            dedup_key = source_url_normalized.strip()
+            if dedup_key and dedup_key in seen_urls:
+                continue
+            if dedup_key:
+                seen_urls.add(dedup_key)
+            deduped.append((kind, record))
+
+        picked = deduped[offset : offset + limit]
         return FeedListResponse(
             items=self._build_items_for_records(
                 user=user,
@@ -782,6 +791,8 @@ class FeedService:
         prefer_zh: bool,
     ) -> list[str]:
         note_tags = self._normalize_tag_list(note.tags_json or [])
+        if note_tags:
+            return note_tags
         if not latest_summary:
             return note_tags
 
@@ -796,11 +807,7 @@ class FeedService:
         )
         if not summary_display_tags:
             return note_tags
-        if not note_tags:
-            return summary_display_tags
-        if summary_original_tags and note_tags == summary_original_tags:
-            return summary_display_tags
-        return note_tags
+        return summary_display_tags
 
     def _matches_note_tag(
         self,

@@ -144,13 +144,14 @@ infra/
 - `notes.source_published_at`: TIMESTAMPTZ，可空
 - `notes.source_excerpt`: TEXT，可空
 - `notes.note_body_md`: TEXT，默认空字符串
-- `notes.visibility`: VARCHAR(16)，`private` / `public`，默认 `private`
+- `notes.visibility`: VARCHAR(16)，`private` / `public`，默认 `public`
 - `notes.analysis_status`: VARCHAR(16)，`pending` / `running` / `succeeded` / `failed`
 - `notes.created_at` / `notes.updated_at`: TIMESTAMPTZ
 
 约束：
 - `(user_id, source_url_normalized)` 唯一，防止同用户重复导入同链接
 - `source_url` 仅允许 `http/https`
+- 默认可见性与 `SPEC.md` 保持一致：新建学习笔记默认 `public`
 
 ### 4.7 内容分析结果记录模型（学习笔记）
 - `note_ai_summaries.id`: UUID
@@ -304,7 +305,13 @@ Redis Key：
 - `/`：首页（右上角账号入口）
 - `/auth`：认证页（登录/注册双 Tab）
 - `/profile`：个人资料页
-- `/admin/users`：管理系统用户管理页（管理员可见）
+- `/feed`：广场（信息流）
+- `/feed/items/{item_type}/{item_id}`：信息流详情
+- `/admin`：管理系统入口页（管理员可见）
+- `/admin/users`：管理系统用户管理页
+- `/admin/notes`：管理系统笔记管理页
+- `/admin/sources`：管理系统聚合源管理页
+- `/admin/aggregates`：管理系统聚合条目页
 - `/forgot-password`：忘记密码
 - `/reset-password?token=...`：重置密码
 - `/notes`：我的笔记列表
@@ -335,13 +342,24 @@ Redis Key：
 
 ### 7.5 管理系统页交互
 - 仅管理员可访问；非管理员访问返回无权限提示
-- 支持用户搜索（ID/邮箱/昵称）
-- 支持编辑用户：昵称、界面语言、管理员标记
-- 保存单行后即时刷新列表
+- 采用多 Tab 结构：`用户` / `笔记` / `聚合源` / `聚合条目`
+- 用户管理：
+  - 支持用户搜索（ID/邮箱/昵称）
+  - 支持编辑用户：昵称、界面语言、管理员标记
+  - 保存单行后即时刷新列表
+- 笔记管理：
+  - 支持按状态/可见性/删除状态筛选
+  - 支持删除与恢复（恢复需满足恢复边界）
+- 聚合源管理：
+  - 支持新增、启用/停用、逻辑删除与恢复、手动刷新
+- 聚合条目：
+  - 支持按来源/状态筛选
+  - 支持查看分析失败诊断与重试入口
 
 ### 7.6 学习笔记页交互
 - 列表页（`/notes`）：
   - 展示来源标题、发布时间、收藏/点赞计数、标签、极简摘要
+  - 标签展示规则：优先使用用户标签；当用户标签为空时回退自动分析标签
   - 笔记 tab 额外展示 AI 状态、可见性
   - 收藏 tab 额外展示创作者
   - 支持状态筛选（`running/succeeded/failed`）与关键词搜索
@@ -639,3 +657,55 @@ Phase 3（质量优化）：
 - 聚合失败明细随刷新任务状态存储在 Redis 任务 payload，不单独建表。
 - 生命周期沿用任务 TTL，定位窗口以短期排障为主。
 - 超出 TTL 后，仅保留业务实体当前状态快照（如 `analysis_status` / `analysis_error`）。
+
+## 15. 从 SPEC 下沉的详细规则
+
+### 15.1 笔记恢复边界
+- 管理员恢复逻辑删除笔记时，必须先校验笔记作者账号仍有效。
+- 若作者账号已被删除且不可恢复，则该笔记不可恢复为对外可见状态。
+- 管理后台应在恢复失败时返回明确原因：`owner_not_recoverable`。
+
+### 15.2 `canonical_url` 归一化与关联规则
+- `canonical_url` 为跨模块统一语义字段：
+  - 学习笔记使用 `notes.source_url_normalized`
+  - 聚合条目使用 `aggregate_items.source_url_normalized`（若实现中字段名不同，语义需等价）
+- 归一化流程（MVP）：
+  - `scheme` 与 `host` 小写化
+  - 移除 `fragment`
+  - 移除默认端口（`http:80` / `https:443`）
+  - 移除根路径之外的末尾 `/`
+  - 查询参数按白名单保留（默认：`id`、`p`、`v`），其余移除
+  - 短链先解析最终跳转 URL，再执行归一化
+- 去重与跨内容关联均以 `canonical_url` 为准。
+
+### 15.3 聚合互动计数与去重口径
+- 关联公开笔记定义：`canonical_url` 相同且 `visibility=public` 的学习笔记。
+- 收藏计数口径：
+  - `favorite_count = |U_favorite(aggregate_item) ∪ U_favorite(linked_public_notes)|`
+- 点赞计数口径：
+  - `like_count = |U_like(aggregate_item) ∪ U_like(linked_public_notes)|`
+- 同一用户在聚合条目与关联公开笔记上的重复互动只计一次。
+- 实现可采用“查询时聚合”或“异步物化汇总”，但口径必须一致。
+
+### 15.4 权限矩阵（MVP）
+
+| 角色 | 查看公开内容 | 查看他人私有内容 | 编辑本人笔记 | 收藏/点赞公开内容 | 收藏/点赞私有或已删除内容 |
+| --- | --- | --- | --- | --- | --- |
+| 未登录用户 | 允许 | 不允许 | 不允许 | 不允许 | 不允许 |
+| 登录普通用户 | 允许 | 不允许 | 允许 | 允许 | 不允许 |
+| 管理员 | 允许（前台同普通用户） | 前台不允许，后台可审计查看 | 仅可改状态，不可改正文 | 允许 | 不允许 |
+
+### 15.5 信息流排序与去重
+- `source_published_at`：来源内容发布时间（上游 RSS/Atom 优先，其次内容分析推断）。
+- `feed_rank_time`：信息流排序时间。
+  - 学习笔记：`feed_rank_time = 学习心得字段最后更新时间`
+  - 聚合条目：`feed_rank_time = source_published_at`（缺失时可回退为条目创建时间）
+- 信息流按 `feed_rank_time` 倒排。
+- 同一信息流结果集中，同一 `canonical_url` 只展示一条。
+
+### 15.6 内容分析重试与幂等补充
+- 状态映射：`待分析/分析中/成功/失败` 对应 `pending/running/succeeded/failed`。
+- 手动重试状态流转：`failed -> pending -> running -> succeeded/failed`。
+- 当目标对象处于 `running` 时重复触发手动重试，不创建并发任务，直接返回当前状态。
+- 手动重试次数上限默认 3 次（可配置），超限后返回可识别错误码。
+- 本节为 13.4 的业务补充，若冲突以“状态机幂等不破坏”原则处理。

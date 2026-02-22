@@ -497,6 +497,8 @@ class NoteService:
         prefer_zh: bool,
     ) -> list[str]:
         note_tags = normalize_hashtag_list(note.tags_json or [], max_count=MAX_NOTE_TAGS)
+        if note_tags:
+            return note_tags
         if not latest_summary:
             return note_tags
 
@@ -511,14 +513,7 @@ class NoteService:
         )
         if not summary_display_tags:
             return note_tags
-        if not note_tags:
-            return summary_display_tags
-
-        normalized_note_tags = normalize_hashtag_list(note_tags, max_count=MAX_NOTE_TAGS)
-        normalized_summary_original_tags = normalize_hashtag_list(summary_original_tags, max_count=MAX_ANALYSIS_TAGS)
-        if normalized_note_tags and normalized_note_tags == normalized_summary_original_tags:
-            return summary_display_tags
-        return note_tags
+        return summary_display_tags
 
     def _build_note_summary_excerpt(
         self,

@@ -225,6 +225,15 @@ export default function FeedPage() {
                       <span>·</span>
                       <span>发布时间 {formatPublishedAt(item)}</span>
                     </div>
+                    {!!item.tags.length && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.tags.map((tagItem) => (
+                          <Badge key={`${item.item_type}-${item.id}-${tagItem}`} variant="muted">
+                            #{tagItem}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     {!!item.auto_summary_excerpt?.trim() && (
                       <SummaryBlock variant="auto" content={item.auto_summary_excerpt} />
                     )}
