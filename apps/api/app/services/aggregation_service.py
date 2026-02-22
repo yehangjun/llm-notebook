@@ -31,6 +31,10 @@ from app.schemas.feed import RefreshAggregatesResponse
 
 DEFAULT_PORTS = {"http": 80, "https": 443}
 MAX_ANALYSIS_TAGS = 5
+SHORT_SUMMARY_MAX_LENGTH_ZH = 100
+LONG_SUMMARY_MAX_LENGTH_ZH = 300
+SHORT_SUMMARY_MAX_LENGTH_NON_ZH = 200
+LONG_SUMMARY_MAX_LENGTH_NON_ZH = 600
 AGGREGATION_SOURCES_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "aggregation_sources.json"
 SKIP_LINK_PREFIXES = ("javascript:", "mailto:", "tel:", "#")
 SKIP_FILE_SUFFIXES = {
@@ -60,6 +64,8 @@ class AggregateAnalysisResult:
     title: str | None
     title_zh: str | None
     published_at: datetime | None
+    summary_short_text: str
+    summary_short_text_zh: str | None
     summary_text: str
     summary_text_zh: str | None
     tags: list[str]
@@ -379,6 +385,8 @@ class AggregationService:
             tags_zh_json=[source.slug],
             analysis_status="pending",
             analysis_error=None,
+            summary_short_text=None,
+            summary_short_text_zh=None,
             summary_text=None,
             summary_text_zh=None,
             model_provider=self._analysis_model_provider(),
@@ -447,6 +455,8 @@ class AggregationService:
             item.source_language = result.source_language
             if item.published_at is None and result.published_at is not None:
                 item.published_at = result.published_at
+            item.summary_short_text = result.summary_short_text
+            item.summary_short_text_zh = result.summary_short_text_zh
             item.summary_text = result.summary_text
             item.summary_text_zh = result.summary_text_zh
             item.tags_json = result.tags
@@ -527,14 +537,26 @@ class AggregationService:
                     error_class="LLMClientError",
                 ) from second_exc
 
-        summary_text = (result.summary or "").strip()[:400]
-        if not summary_text:
+        short_limit, long_limit = self._summary_limits_for_language(result.source_language)
+        summary_short_text, summary_text = self._resolve_summary_pair(
+            short_text=result.summary_short,
+            long_text=result.summary_long,
+            short_max_length=short_limit,
+            long_max_length=long_limit,
+        )
+        if not summary_short_text or not summary_text:
             raise AggregationStageError(
                 "模型未返回有效摘要",
                 stage="llm_parse",
                 retryable=False,
                 error_class="ValueError",
             )
+        summary_short_text_zh, summary_text_zh = self._resolve_summary_pair(
+            short_text=result.summary_short_zh,
+            long_text=result.summary_long_zh,
+            short_max_length=SHORT_SUMMARY_MAX_LENGTH_ZH,
+            long_max_length=LONG_SUMMARY_MAX_LENGTH_ZH,
+        )
 
         tags = self._merge_tags(result.tags, source_slug)
         if not tags:
@@ -545,16 +567,25 @@ class AggregationService:
         title = (result.title or source_title or "")[:512] or None
         if result.source_language == "zh":
             title_zh = (result.title_zh or title or "")[:512] or None
-            summary_text_zh = (result.summary_zh or summary_text)[:400]
+            summary_short_text_zh = summary_short_text_zh or summary_short_text
+            summary_text_zh = summary_text_zh or summary_text
         else:
             title_zh = (result.title_zh or "")[:512] or None
-            summary_text_zh = (result.summary_zh or "").strip()[:400] or None
+            if not summary_short_text_zh or not summary_text_zh:
+                raise AggregationStageError(
+                    "模型未返回中文摘要",
+                    stage="llm_parse",
+                    retryable=False,
+                    error_class="ValueError",
+                )
 
         return AggregateAnalysisResult(
             source_language=result.source_language,
             title=title,
             title_zh=title_zh,
             published_at=result.published_at or inferred_published_at,
+            summary_short_text=summary_short_text,
+            summary_short_text_zh=summary_short_text_zh,
             summary_text=summary_text,
             summary_text_zh=summary_text_zh,
             tags=tags,
@@ -563,6 +594,42 @@ class AggregationService:
             model_name=result.model_name or settings.llm_model_name,
             model_version=None,
         )
+
+    def _resolve_summary_pair(
+        self,
+        *,
+        short_text: str | None,
+        long_text: str | None,
+        short_max_length: int,
+        long_max_length: int,
+    ) -> tuple[str | None, str | None]:
+        short_value = self._normalize_summary(short_text, max_length=short_max_length)
+        long_value = self._normalize_summary(long_text, max_length=long_max_length)
+        if not short_value and not long_value:
+            return None, None
+        if not long_value:
+            long_value = short_value
+        if not short_value and long_value:
+            short_value = self._truncate_for_short_summary(long_value, max_length=short_max_length)
+        return short_value, long_value
+
+    def _normalize_summary(self, raw: str | None, *, max_length: int) -> str | None:
+        if not raw:
+            return None
+        normalized = raw.strip()
+        if not normalized:
+            return None
+        return normalized[:max_length]
+
+    def _truncate_for_short_summary(self, value: str, *, max_length: int) -> str:
+        if len(value) <= max_length:
+            return value
+        return value[:max_length].rstrip()
+
+    def _summary_limits_for_language(self, source_language: str | None) -> tuple[int, int]:
+        if source_language == "zh":
+            return SHORT_SUMMARY_MAX_LENGTH_ZH, LONG_SUMMARY_MAX_LENGTH_ZH
+        return SHORT_SUMMARY_MAX_LENGTH_NON_ZH, LONG_SUMMARY_MAX_LENGTH_NON_ZH
 
     def _merge_tags(self, *groups: Any) -> list[str]:
         merged: list[str] = []

@@ -15,6 +15,9 @@ import { clearAuth, UserPublic } from "../../../lib/auth";
 import { FeedDetailResponse } from "../../../lib/feed";
 import { NoteDetail } from "../../../lib/notes";
 
+const LONG_SUMMARY_CLAMP_CLASS =
+  "overflow-hidden whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:10]";
+
 export default function NoteDetailPage() {
   const params = useParams<{ note_id: string }>();
   const router = useRouter();
@@ -187,58 +190,50 @@ export default function NoteDetailPage() {
           </CardHeader>
 
           <CardContent className="space-y-6">
-            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
-              <h2 className="text-base font-semibold text-foreground">来源信息</h2>
-              <div className="grid gap-2 text-sm text-foreground">
-                <div>
-                  <span className="font-medium">来源标题：</span>
-                  {note.source_title || "未提取到标题"}
-                </div>
-                <div className="break-all">
-                  <span className="font-medium">来源链接：</span>
-                  <a className="text-primary underline-offset-4 hover:underline" href={note.source_url} target="_blank" rel="noreferrer">
-                    {note.source_url}
-                  </a>
-                </div>
-                <div>
-                  <span className="font-medium">来源域名：</span>
-                  {note.source_domain}
-                </div>
-                <div>
-                  <span className="font-medium">创作者：</span>
-                  {socialItem ? (
-                    <CreatorProfileHoverCard
-                      className="align-middle"
-                      creatorName={socialItem.creator_name}
-                      creatorKind={socialItem.creator_kind}
-                      creatorId={socialItem.creator_id}
-                      sourceDomain={socialItem.source_domain}
-                      following={socialItem.following}
-                      disabled={acting === "follow"}
-                      onToggleFollow={onToggleFollow}
-                    />
-                  ) : (
-                    <span className="text-muted-foreground">本人</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">状态：</span>
-                  <AnalysisStatusBadge status={note.analysis_status} />
-                  <Badge variant="secondary">{note.visibility === "public" ? "公开" : "私有"}</Badge>
-                </div>
-                {!!note.tags.length && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {note.tags.map((item) => (
-                      <Badge key={`${note.id}-${item}`} variant="muted">
-                        #{item}
-                      </Badge>
-                    ))}
-                  </div>
+            <section className="space-y-3 rounded-lg border border-border bg-white p-4">
+              <div className="text-base font-semibold text-foreground">{note.source_title || "未提取到标题"}</div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                {socialItem ? (
+                  <CreatorProfileHoverCard
+                    className="align-middle"
+                    creatorName={socialItem.creator_name}
+                    creatorKind={socialItem.creator_kind}
+                    creatorId={socialItem.creator_id}
+                    sourceDomain={socialItem.source_domain}
+                    following={socialItem.following}
+                    disabled={acting === "follow"}
+                    onToggleFollow={onToggleFollow}
+                  />
+                ) : (
+                  <span>本人</span>
                 )}
-                {note.analysis_error && (
-                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{note.analysis_error}</div>
+                <span>·</span>
+                <span>{note.source_domain}</span>
+                {note.latest_summary?.published_at && (
+                  <>
+                    <span>·</span>
+                    <span>{new Date(note.latest_summary.published_at).toLocaleString()}</span>
+                  </>
                 )}
+                <span>·</span>
+                <AnalysisStatusBadge status={note.analysis_status} />
+                <Badge variant="secondary">{note.visibility === "public" ? "公开" : "私有"}</Badge>
               </div>
+              <a className="block break-all text-sm text-primary underline-offset-4 hover:underline" href={note.source_url} target="_blank" rel="noreferrer">
+                {note.source_url}
+              </a>
+              {!!note.tags.length && (
+                <div className="flex flex-wrap gap-1.5">
+                  {note.tags.map((item) => (
+                    <Badge key={`${note.id}-${item}`} variant="muted">
+                      #{item}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {note.analysis_error && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{note.analysis_error}</div>
+              )}
             </section>
 
             {socialItem && (
@@ -271,19 +266,12 @@ export default function NoteDetailPage() {
                 </div>
               )}
               {note.latest_summary?.title && (
-                <div className="text-sm">
-                  <span className="font-medium">分析标题：</span>
-                  {note.latest_summary.title}
-                </div>
+                <div className="text-sm text-foreground">{note.latest_summary.title}</div>
               )}
-              {note.latest_summary?.published_at && (
-                <div className="text-sm">
-                  <span className="font-medium">发布时间：</span>
-                  {new Date(note.latest_summary.published_at).toLocaleString()}
-                </div>
-              )}
-              {note.latest_summary?.summary_text && (
-                <p className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6">{note.latest_summary.summary_text}</p>
+              {(note.latest_summary?.summary_long_text || note.latest_summary?.summary_text) && (
+                <p className={LONG_SUMMARY_CLAMP_CLASS}>
+                  {note.latest_summary?.summary_long_text || note.latest_summary?.summary_text}
+                </p>
               )}
               {!!note.latest_summary?.tags?.length && (
                 <div className="flex flex-wrap gap-1.5">

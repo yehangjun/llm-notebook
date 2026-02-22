@@ -13,6 +13,9 @@ import { apiRequest } from "../../../../../lib/api";
 import { clearAuth, UserPublic } from "../../../../../lib/auth";
 import { FeedDetailResponse } from "../../../../../lib/feed";
 
+const LONG_SUMMARY_CLAMP_CLASS =
+  "overflow-hidden whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:10]";
+
 export default function FeedItemDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -164,51 +167,43 @@ export default function FeedItemDetailPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            <section className="space-y-2 rounded-lg border border-border bg-white p-4">
-              <h2 className="text-base font-semibold text-foreground">来源信息</h2>
-              <div className="grid gap-2 text-sm text-foreground">
-                <div>
-                  <span className="font-medium">来源标题：</span>
-                  {item.source_title || item.source_url}
-                </div>
-                <div>
-                  <span className="font-medium">创作者：</span>
-                  <CreatorProfileHoverCard
-                    className="align-middle"
-                    creatorName={item.creator_name}
-                    creatorKind={item.creator_kind}
-                    creatorId={item.creator_id}
-                    sourceDomain={item.source_domain}
-                    following={item.following}
-                    disabled={acting === "follow"}
-                    onToggleFollow={onToggleFollow}
-                  />
-                </div>
-                <div>
-                  <span className="font-medium">来源域名：</span>
-                  {item.source_domain}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">状态：</span>
-                  <AnalysisStatusBadge status={item.analysis_status} />
-                </div>
+            <section className="space-y-3 rounded-lg border border-border bg-white p-4">
+              <div className="text-base font-semibold text-foreground">{item.source_title || item.source_url}</div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                <CreatorProfileHoverCard
+                  className="align-middle"
+                  creatorName={item.creator_name}
+                  creatorKind={item.creator_kind}
+                  creatorId={item.creator_id}
+                  sourceDomain={item.source_domain}
+                  following={item.following}
+                  disabled={acting === "follow"}
+                  onToggleFollow={onToggleFollow}
+                />
+                <span>·</span>
+                <span>{item.source_domain}</span>
                 {item.published_at && (
-                  <div>
-                    <span className="font-medium">发布时间：</span>
-                    {new Date(item.published_at).toLocaleString()}
-                  </div>
+                  <>
+                    <span>·</span>
+                    <span>{new Date(item.published_at).toLocaleString()}</span>
+                  </>
                 )}
-                {!!item.tags.length && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {item.tags.map((tagItem) => (
-                      <Badge key={`${item.id}-${tagItem}`} variant="muted">
-                        #{tagItem}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                {detail.analysis_error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{detail.analysis_error}</div>}
+                <span>·</span>
+                <AnalysisStatusBadge status={item.analysis_status} />
               </div>
+              <a className="block break-all text-sm text-primary underline-offset-4 hover:underline" href={item.source_url} target="_blank" rel="noreferrer">
+                {item.source_url}
+              </a>
+              {!!item.tags.length && (
+                <div className="flex flex-wrap gap-1.5">
+                  {item.tags.map((tagItem) => (
+                    <Badge key={`${item.id}-${tagItem}`} variant="muted">
+                      #{tagItem}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {detail.analysis_error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{detail.analysis_error}</div>}
             </section>
 
             <section className="space-y-2">
@@ -232,8 +227,8 @@ export default function FeedItemDetailPage() {
 
             <section className="space-y-2 rounded-lg border border-border bg-white p-4">
               <h2 className="text-base font-semibold text-foreground">AI 摘要</h2>
-              {detail.summary_text ? (
-                <p className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6">{detail.summary_text}</p>
+              {(detail.summary_long_text || detail.summary_text) ? (
+                <p className={LONG_SUMMARY_CLAMP_CLASS}>{detail.summary_long_text || detail.summary_text}</p>
               ) : (
                 <div className="text-sm text-muted-foreground">暂无摘要</div>
               )}

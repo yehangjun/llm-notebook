@@ -4,6 +4,8 @@ export type NoteSummaryPublic = {
   source_language: string | null;
   title: string | null;
   published_at: string | null;
+  summary_short_text: string | null;
+  summary_long_text: string | null;
   summary_text: string | null;
   tags: string[];
   model_provider: string | null;

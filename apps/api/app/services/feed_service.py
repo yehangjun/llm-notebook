@@ -27,6 +27,10 @@ FEED_SCOPE_FOLLOWING = "following"
 FEED_SCOPE_UNFOLLOWED = "unfollowed"
 ALLOWED_FEED_SCOPES = {FEED_SCOPE_ALL, FEED_SCOPE_FOLLOWING, FEED_SCOPE_UNFOLLOWED}
 MAX_DISPLAY_TAGS = 5
+SHORT_SUMMARY_MAX_LENGTH_ZH = 100
+LONG_SUMMARY_MAX_LENGTH_ZH = 300
+SHORT_SUMMARY_MAX_LENGTH_NON_ZH = 200
+LONG_SUMMARY_MAX_LENGTH_NON_ZH = 600
 
 
 @dataclass
@@ -116,7 +120,12 @@ class FeedService:
                 source_url=aggregate.source_url_normalized,
                 source_domain=aggregate.source_domain,
                 creator_name=creator_name,
-                summary_text=self._combine_for_search(aggregate.summary_text, aggregate.summary_text_zh),
+                summary_text=self._combine_for_search(
+                    aggregate.summary_short_text,
+                    aggregate.summary_short_text_zh,
+                    aggregate.summary_text,
+                    aggregate.summary_text_zh,
+                ),
             ):
                 continue
             if not self._match_scope(
@@ -363,21 +372,15 @@ class FeedService:
                 prefer_zh=prefer_zh,
                 note_summary_cache={note.id: latest_summary},
             )[0]
-            if latest_summary and latest_summary.source_language == "zh":
-                summary_zh = (
-                    latest_summary.output_summary_zh
-                    or latest_summary.output_summary
-                    or latest_summary.summary_text
-                )
-            else:
-                summary_zh = latest_summary.output_summary_zh if latest_summary else None
+            summary_short_text, summary_long_text = self._resolve_note_summary_texts(
+                summary=latest_summary,
+                prefer_zh=prefer_zh,
+            )
             return FeedDetailResponse(
                 item=item,
-                summary_text=self._pick_display_text(
-                    prefer_zh=prefer_zh,
-                    original=(latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None,
-                    zh=summary_zh,
-                ),
+                summary_short_text=summary_short_text,
+                summary_long_text=summary_long_text or summary_short_text,
+                summary_text=summary_long_text or summary_short_text,
                 note_body_md=note.note_body_md,
                 analysis_error=(latest_summary.error_message if latest_summary else None) or note.analysis_error,
                 model_provider=latest_summary.model_provider if latest_summary else None,
@@ -408,13 +411,15 @@ class FeedService:
                 followed_source_ids=followed_source_ids,
                 prefer_zh=prefer_zh,
             )[0]
+            summary_short_text, summary_long_text = self._resolve_aggregate_summary_texts(
+                aggregate=aggregate,
+                prefer_zh=prefer_zh,
+            )
             return FeedDetailResponse(
                 item=item,
-                summary_text=self._pick_display_text(
-                    prefer_zh=prefer_zh,
-                    original=aggregate.summary_text,
-                    zh=aggregate.summary_text_zh,
-                ),
+                summary_short_text=summary_short_text,
+                summary_long_text=summary_long_text or summary_short_text,
+                summary_text=summary_long_text or summary_short_text,
                 note_body_md=None,
                 analysis_error=aggregate.analysis_error,
                 model_provider=aggregate.model_provider,
@@ -455,19 +460,13 @@ class FeedService:
                 )
                 if note_summary_cache is not None and note.id not in note_summary_cache:
                     note_summary_cache[note.id] = latest_summary
-                if latest_summary and latest_summary.source_language == "zh":
-                    excerpt_zh = (
-                        latest_summary.output_summary_zh
-                        or latest_summary.output_summary
-                        or latest_summary.summary_text
-                    )
-                    title_zh = latest_summary.output_title_zh or latest_summary.output_title
-                else:
-                    excerpt_zh = latest_summary.output_summary_zh if latest_summary else None
-                    title_zh = latest_summary.output_title_zh if latest_summary else None
-                excerpt_original = (
-                    (latest_summary.output_summary or latest_summary.summary_text) if latest_summary else None
+                summary_short_text, _ = self._resolve_note_summary_texts(
+                    summary=latest_summary,
+                    prefer_zh=prefer_zh,
                 )
+                title_zh = latest_summary.output_title_zh if latest_summary else None
+                if latest_summary and latest_summary.source_language == "zh":
+                    title_zh = title_zh or latest_summary.output_title
                 display_title = self._pick_display_text(
                     prefer_zh=prefer_zh,
                     original=(latest_summary.output_title if latest_summary else None) or note.source_title,
@@ -479,8 +478,8 @@ class FeedService:
                     prefer_zh=prefer_zh,
                 )
                 auto_summary_excerpt = self._shorten(
-                    self._pick_display_text(prefer_zh=prefer_zh, original=excerpt_original, zh=excerpt_zh),
-                    max_len=220,
+                    summary_short_text,
+                    max_len=SHORT_SUMMARY_MAX_LENGTH_NON_ZH,
                 )
                 note_body_excerpt = self._shorten(self._normalize_excerpt_text(note.note_body_md), max_len=220)
                 stats = note_stats.get(
@@ -522,13 +521,13 @@ class FeedService:
                 InteractionStats(like_count=0, bookmark_count=0, liked=False, bookmarked=False),
             )
             creator = aggregate.source_creator
+            summary_short_text, _ = self._resolve_aggregate_summary_texts(
+                aggregate=aggregate,
+                prefer_zh=prefer_zh,
+            )
             auto_summary_excerpt = self._shorten(
-                self._pick_display_text(
-                    prefer_zh=prefer_zh,
-                    original=aggregate.summary_text,
-                    zh=aggregate.summary_text_zh,
-                ),
-                max_len=220,
+                summary_short_text,
+                max_len=SHORT_SUMMARY_MAX_LENGTH_NON_ZH,
             )
             items.append(
                 FeedItem(
@@ -864,8 +863,110 @@ class FeedService:
             return fallback
         return None
 
-    def _combine_for_search(self, first: str | None, second: str | None) -> str:
-        chunks = [part.strip() for part in (first, second) if part and part.strip()]
+    def _resolve_note_summary_texts(
+        self,
+        *,
+        summary: NoteAISummary | None,
+        prefer_zh: bool,
+    ) -> tuple[str | None, str | None]:
+        if not summary:
+            return None, None
+
+        short_limit, long_limit = self._summary_limits_for_language(summary.source_language)
+        short_original, long_original = self._resolve_summary_pair(
+            short_text=summary.output_summary,
+            long_text=summary.summary_text,
+            short_max_length=short_limit,
+            long_max_length=long_limit,
+        )
+        short_zh, long_zh = self._resolve_summary_pair(
+            short_text=summary.output_summary_zh,
+            long_text=summary.summary_text_zh,
+            short_max_length=SHORT_SUMMARY_MAX_LENGTH_ZH,
+            long_max_length=LONG_SUMMARY_MAX_LENGTH_ZH,
+        )
+        if summary.source_language == "zh":
+            short_zh = short_zh or short_original
+            long_zh = long_zh or long_original
+        short_display = self._pick_display_text(
+            prefer_zh=prefer_zh,
+            original=short_original,
+            zh=short_zh,
+        )
+        long_display = self._pick_display_text(
+            prefer_zh=prefer_zh,
+            original=long_original,
+            zh=long_zh,
+        )
+        return short_display, long_display or short_display
+
+    def _resolve_aggregate_summary_texts(
+        self,
+        *,
+        aggregate: AggregateItem,
+        prefer_zh: bool,
+    ) -> tuple[str | None, str | None]:
+        short_limit, long_limit = self._summary_limits_for_language(aggregate.source_language)
+        short_original, long_original = self._resolve_summary_pair(
+            short_text=aggregate.summary_short_text,
+            long_text=aggregate.summary_text,
+            short_max_length=short_limit,
+            long_max_length=long_limit,
+        )
+        short_zh, long_zh = self._resolve_summary_pair(
+            short_text=aggregate.summary_short_text_zh,
+            long_text=aggregate.summary_text_zh,
+            short_max_length=SHORT_SUMMARY_MAX_LENGTH_ZH,
+            long_max_length=LONG_SUMMARY_MAX_LENGTH_ZH,
+        )
+        if aggregate.source_language == "zh":
+            short_zh = short_zh or short_original
+            long_zh = long_zh or long_original
+        short_display = self._pick_display_text(
+            prefer_zh=prefer_zh,
+            original=short_original,
+            zh=short_zh,
+        )
+        long_display = self._pick_display_text(
+            prefer_zh=prefer_zh,
+            original=long_original,
+            zh=long_zh,
+        )
+        return short_display, long_display or short_display
+
+    def _resolve_summary_pair(
+        self,
+        *,
+        short_text: str | None,
+        long_text: str | None,
+        short_max_length: int,
+        long_max_length: int,
+    ) -> tuple[str | None, str | None]:
+        short_value = self._normalize_summary_text(short_text, max_length=short_max_length)
+        long_value = self._normalize_summary_text(long_text, max_length=long_max_length)
+        if not short_value and not long_value:
+            return None, None
+        if not long_value:
+            long_value = short_value
+        if not short_value and long_value:
+            short_value = long_value[:short_max_length].rstrip()
+        return short_value, long_value
+
+    def _normalize_summary_text(self, value: str | None, *, max_length: int) -> str | None:
+        if not value:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        return normalized[:max_length]
+
+    def _summary_limits_for_language(self, source_language: str | None) -> tuple[int, int]:
+        if source_language == "zh":
+            return SHORT_SUMMARY_MAX_LENGTH_ZH, LONG_SUMMARY_MAX_LENGTH_ZH
+        return SHORT_SUMMARY_MAX_LENGTH_NON_ZH, LONG_SUMMARY_MAX_LENGTH_NON_ZH
+
+    def _combine_for_search(self, *parts: str | None) -> str:
+        chunks = [part.strip() for part in parts if part and part.strip()]
         return " ".join(chunks)
 
     def _match_keyword(

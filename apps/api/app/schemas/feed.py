@@ -46,6 +46,8 @@ class CreatorProfileResponse(BaseModel):
 
 class FeedDetailResponse(BaseModel):
     item: FeedItem
+    summary_short_text: str | None
+    summary_long_text: str | None
     summary_text: str | None
     note_body_md: str | None
     analysis_error: str | None

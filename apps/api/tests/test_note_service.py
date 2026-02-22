@@ -33,8 +33,10 @@ def test_run_analysis_job_success_updates_note_and_creates_summary() -> None:
             title="OpenAI update",
             title_zh="OpenAI 更新",
             published_at=datetime(2026, 2, 19, tzinfo=timezone.utc),
-            summary_text="short summary",
-            summary_text_zh="中文摘要",
+            summary_short_text="short summary",
+            summary_short_text_zh="中文短摘要",
+            summary_long_text="long summary",
+            summary_long_text_zh="中文长摘要",
             tags=["openai", "agent"],
             tags_zh=["开放ai", "智能体"],
             model_provider="openai",
@@ -57,6 +59,8 @@ def test_run_analysis_job_success_updates_note_and_creates_summary() -> None:
     service.note_repo.create_summary.assert_called_once()
     kwargs = service.note_repo.create_summary.call_args.kwargs
     assert kwargs["status"] == "succeeded"
+    assert kwargs["output_summary"] == "short summary"
+    assert kwargs["summary_text"] == "long summary"
     assert kwargs["output_tags_zh"] == ["开放ai", "智能体"]
 
 

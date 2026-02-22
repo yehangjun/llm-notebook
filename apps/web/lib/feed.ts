@@ -39,6 +39,8 @@ export type CreatorProfile = {
 
 export type FeedDetailResponse = {
   item: FeedItem;
+  summary_short_text: string | null;
+  summary_long_text: string | null;
   summary_text: string | null;
   note_body_md: string | null;
   analysis_error: string | null;

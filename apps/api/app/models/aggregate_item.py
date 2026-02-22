@@ -38,6 +38,8 @@ class AggregateItem(Base):
     tags_zh_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     analysis_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     analysis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_short_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_short_text_zh: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_text_zh: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -49,6 +49,10 @@ WECHAT_HOST = "mp.weixin.qq.com"
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
 YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
 DEFAULT_PORTS = {"http": 80, "https": 443}
+SHORT_SUMMARY_MAX_LENGTH_ZH = 100
+LONG_SUMMARY_MAX_LENGTH_ZH = 300
+SHORT_SUMMARY_MAX_LENGTH_NON_ZH = 200
+LONG_SUMMARY_MAX_LENGTH_NON_ZH = 600
 
 
 class AnalysisError(Exception):
@@ -64,8 +68,10 @@ class SourceAnalysis:
     title: str | None
     title_zh: str | None
     published_at: datetime | None
-    summary_text: str
-    summary_text_zh: str | None
+    summary_short_text: str
+    summary_short_text_zh: str | None
+    summary_long_text: str
+    summary_long_text_zh: str | None
     tags: list[str]
     tags_zh: list[str]
     model_provider: str | None
@@ -278,11 +284,12 @@ class NoteService:
             output_title=result.title,
             output_title_zh=result.title_zh,
             published_at=result.published_at,
-            output_summary=result.summary_text,
-            output_summary_zh=result.summary_text_zh,
+            output_summary=result.summary_short_text,
+            output_summary_zh=result.summary_short_text_zh,
             output_tags=result.tags,
             output_tags_zh=result.tags_zh,
-            summary_text=result.summary_text,
+            summary_text=result.summary_long_text,
+            summary_text_zh=result.summary_long_text_zh,
             model_provider=result.model_provider,
             model_name=result.model_name,
             model_version=result.model_version,
@@ -332,6 +339,7 @@ class NoteService:
             output_tags=None,
             output_tags_zh=None,
             summary_text=None,
+            summary_text_zh=None,
             model_provider=self._analysis_model_provider(),
             model_name=self._analysis_model_name(),
             model_version=self._analysis_model_version(),
@@ -443,14 +451,38 @@ class NoteService:
         prefer_zh = self._prefer_zh_ui(ui_language)
         original_title = summary.output_title
         translated_title = summary.output_title_zh
-        merged_summary = summary.output_summary or summary.summary_text
-        translated_summary = summary.output_summary_zh
+        short_limit, long_limit = self._summary_limits_for_language(summary.source_language)
+        summary_short_original, summary_long_original = self._resolve_summary_pair(
+            short_text=summary.output_summary,
+            long_text=summary.summary_text,
+            short_max_length=short_limit,
+            long_max_length=long_limit,
+        )
+        summary_short_zh, summary_long_zh = self._resolve_summary_pair(
+            short_text=summary.output_summary_zh,
+            long_text=summary.summary_text_zh,
+            short_max_length=SHORT_SUMMARY_MAX_LENGTH_ZH,
+            long_max_length=LONG_SUMMARY_MAX_LENGTH_ZH,
+        )
         if summary.source_language == "zh":
             translated_title = translated_title or original_title
-            translated_summary = translated_summary or merged_summary
+            summary_short_zh = summary_short_zh or summary_short_original
+            summary_long_zh = summary_long_zh or summary_long_original
 
         merged_tags = summary.output_tags_json or []
         translated_tags = summary.output_tags_zh_json
+
+        display_summary_short = self._pick_display_text(
+            prefer_zh=prefer_zh,
+            original=summary_short_original,
+            zh=summary_short_zh,
+        )
+        display_summary_long = self._pick_display_text(
+            prefer_zh=prefer_zh,
+            original=summary_long_original,
+            zh=summary_long_zh,
+        )
+        display_summary_long = display_summary_long or display_summary_short
 
         return NoteSummaryPublic(
             id=summary.id,
@@ -458,7 +490,9 @@ class NoteService:
             source_language=summary.source_language,
             title=self._pick_display_text(prefer_zh=prefer_zh, original=original_title, zh=translated_title),
             published_at=summary.published_at,
-            summary_text=self._pick_display_text(prefer_zh=prefer_zh, original=merged_summary, zh=translated_summary),
+            summary_short_text=display_summary_short,
+            summary_long_text=display_summary_long,
+            summary_text=display_summary_long,
             tags=pick_localized_tags(
                 prefer_zh=prefer_zh,
                 source_language=summary.source_language,
@@ -534,9 +568,9 @@ class NoteService:
         ui_language: str | None,
     ) -> str | None:
         summary_public = self._build_summary_public(latest_summary, ui_language=ui_language) if latest_summary else None
-        if not summary_public or not summary_public.summary_text:
+        if not summary_public or not summary_public.summary_short_text:
             return None
-        return self._shorten_text(summary_public.summary_text, max_length=220)
+        return self._shorten_text(summary_public.summary_short_text, max_length=SHORT_SUMMARY_MAX_LENGTH_NON_ZH)
 
     def _build_note_body_excerpt(self, note_body_md: str | None) -> str | None:
         note_text = self._normalize_excerpt_text(note_body_md)
@@ -554,6 +588,37 @@ class NoteService:
         if len(value) <= max_length:
             return value
         return f"{value[: max_length - 3].rstrip()}..."
+
+    def _resolve_summary_pair(
+        self,
+        *,
+        short_text: str | None,
+        long_text: str | None,
+        short_max_length: int,
+        long_max_length: int,
+    ) -> tuple[str | None, str | None]:
+        short_value = self._normalize_excerpt_text(short_text)
+        long_value = self._normalize_excerpt_text(long_text)
+        short_value = short_value[:short_max_length] if short_value else None
+        long_value = long_value[:long_max_length] if long_value else None
+
+        if not short_value and not long_value:
+            return None, None
+        if not long_value:
+            long_value = short_value
+        if not short_value and long_value:
+            short_value = self._truncate_for_short_summary(long_value, max_length=short_max_length)
+        return short_value, long_value
+
+    def _truncate_for_short_summary(self, value: str, *, max_length: int) -> str:
+        if len(value) <= max_length:
+            return value
+        return value[:max_length].rstrip()
+
+    def _summary_limits_for_language(self, source_language: str | None) -> tuple[int, int]:
+        if source_language == "zh":
+            return SHORT_SUMMARY_MAX_LENGTH_ZH, LONG_SUMMARY_MAX_LENGTH_ZH
+        return SHORT_SUMMARY_MAX_LENGTH_NON_ZH, LONG_SUMMARY_MAX_LENGTH_NON_ZH
 
     def _analyze_source(self, note: Note) -> SourceAnalysis:
         source_title, content, inferred_published_at = self._fetch_source_content(note.source_url)
@@ -628,9 +693,27 @@ class NoteService:
         elif not tags_zh:
             raise AnalysisError(code="invalid_output", message="模型未返回中文标签")
 
-        summary_text = result.summary.strip()[:400]
-        if not summary_text:
+        short_limit, long_limit = self._summary_limits_for_language(result.source_language)
+        summary_short_text, summary_long_text = self._resolve_summary_pair(
+            short_text=result.summary_short,
+            long_text=result.summary_long,
+            short_max_length=short_limit,
+            long_max_length=long_limit,
+        )
+        if not summary_short_text or not summary_long_text:
             raise AnalysisError(code="invalid_output", message="模型未返回有效摘要")
+
+        summary_short_text_zh, summary_long_text_zh = self._resolve_summary_pair(
+            short_text=result.summary_short_zh,
+            long_text=result.summary_long_zh,
+            short_max_length=SHORT_SUMMARY_MAX_LENGTH_ZH,
+            long_max_length=LONG_SUMMARY_MAX_LENGTH_ZH,
+        )
+        if result.source_language == "zh":
+            summary_short_text_zh = summary_short_text_zh or summary_short_text
+            summary_long_text_zh = summary_long_text_zh or summary_long_text
+        elif not summary_short_text_zh or not summary_long_text_zh:
+            raise AnalysisError(code="invalid_output", message="模型未返回中文摘要")
 
         return SourceAnalysis(
             source_language=result.source_language,
@@ -641,12 +724,10 @@ class NoteService:
                 else ((result.title_zh or "")[:512] or None)
             ),
             published_at=result.published_at or fallback_published_at,
-            summary_text=summary_text,
-            summary_text_zh=(
-                (result.summary_zh or summary_text)[:400]
-                if result.source_language == "zh"
-                else ((result.summary_zh or "").strip()[:400] or None)
-            ),
+            summary_short_text=summary_short_text,
+            summary_short_text_zh=summary_short_text_zh,
+            summary_long_text=summary_long_text,
+            summary_long_text_zh=summary_long_text_zh,
             tags=tags,
             tags_zh=tags_zh,
             model_provider=model_provider,

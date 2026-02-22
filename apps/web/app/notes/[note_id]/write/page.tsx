@@ -244,8 +244,10 @@ export default function NoteWritePage() {
                   {note.latest_summary.title}
                 </div>
               )}
-              {note.latest_summary?.summary_text && (
-                <p className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6">{note.latest_summary.summary_text}</p>
+              {(note.latest_summary?.summary_long_text || note.latest_summary?.summary_text) && (
+                <p className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6">
+                  {note.latest_summary?.summary_long_text || note.latest_summary?.summary_text}
+                </p>
               )}
               {!!note.latest_summary?.tags?.length && (
                 <div className="flex flex-wrap gap-1.5">

@@ -18,7 +18,10 @@ TRANSIENT_HTTP_STATUS = {429, 500, 502, 503, 504}
 CJK_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
 MAX_OUTPUT_TAGS = 5
 MAX_TITLE_LENGTH = 120
-MAX_SUMMARY_LENGTH = 400
+MAX_SUMMARY_SHORT_LENGTH_ZH = 100
+MAX_SUMMARY_LONG_LENGTH_ZH = 300
+MAX_SUMMARY_SHORT_LENGTH_NON_ZH = 200
+MAX_SUMMARY_LONG_LENGTH_NON_ZH = 600
 ANTHROPIC_VERSION = "2023-06-01"
 
 PROVIDER_STYLE_ALIASES = {
@@ -50,8 +53,10 @@ class LLMAnalysisResult:
     title: str | None
     title_zh: str | None
     published_at: datetime | None
-    summary: str
-    summary_zh: str | None
+    summary_short: str
+    summary_short_zh: str | None
+    summary_long: str
+    summary_long_zh: str | None
     tags: list[str]
     tags_zh: list[str] | None
     model_name: str | None
@@ -113,10 +118,12 @@ class LLMClient:
     ) -> dict[str, Any]:
         system_prompt = (
             "你是 Prism 的内容分析助手。"
-            "请严格返回 JSON 对象，字段必须是 source_language, title, published_at, summary, tags。"
-            "如果 source_language=non-zh，必须同时返回 title_zh、summary_zh 和 tags_zh。"
-            "如果 source_language=zh，title_zh、summary_zh、tags_zh 可选。"
+            "请严格返回 JSON 对象，字段必须是 source_language, title, published_at, summary_short, summary_long, tags。"
+            "如果 source_language=non-zh，必须同时返回 title_zh、summary_short_zh、summary_long_zh 和 tags_zh。"
+            "如果 source_language=zh，title_zh、summary_short_zh、summary_long_zh、tags_zh 可选。"
             "source_language 只能是 zh 或 non-zh。"
+            "summary_short: 中文不超过 100 字，英文不超过 200 字。"
+            "summary_long: 中文不超过 300 字，英文不超过 600 字。"
             "published_at 可为空，格式优先使用 ISO8601。"
             "tags/tags_zh 必须是 1 到 5 个 hashtag 风格标签，输出时不要带 #，允许中文、英文、数字、下划线和中划线。"
             "不要输出 JSON 之外的任何文字。"
@@ -136,8 +143,10 @@ class LLMClient:
                 "title": "string, optional, <=120 chars",
                 "title_zh": "string, optional when zh, required when non-zh, <=120 chars",
                 "published_at": "string, optional, datetime",
-                "summary": "string, required, <=400 chars",
-                "summary_zh": "string, optional when zh, required when non-zh, <=400 chars",
+                "summary_short": "string, required, <=100 Chinese chars or <=200 English chars",
+                "summary_long": "string, required, <=300 Chinese chars or <=600 English chars",
+                "summary_short_zh": "string, optional when zh, required when non-zh, <=100 Chinese chars",
+                "summary_long_zh": "string, optional when zh, required when non-zh, <=300 Chinese chars",
                 "tags": "string[], required, 1~5, original-language hashtags without #",
                 "tags_zh": "string[], optional when zh, required when non-zh, Chinese hashtags without #",
             },
@@ -243,18 +252,59 @@ class LLMClient:
 
         source_language = self._normalize_language(
             output.get("source_language") or output.get("language"),
-            fallback_text=f"{output.get('title') or ''}\n{output.get('summary') or ''}",
+            fallback_text=(
+                f"{output.get('title') or ''}\n"
+                f"{output.get('summary_long') or output.get('summary') or output.get('summary_short') or ''}"
+            ),
         )
         title = self._normalize_title(output.get("title"))
         title_zh = self._normalize_title(output.get("title_zh") or output.get("titleZh") or output.get("translated_title"))
+        summary_short_max, summary_long_max = self._summary_limits_for_language(source_language)
         published_at = parse_datetime(
             self._normalize_optional_string(
                 output.get("published_at") or output.get("publishedAt") or output.get("publish_time")
             )
         )
-        summary = self._normalize_summary(output.get("summary"))
-        summary_zh = self._normalize_summary_optional(
-            output.get("summary_zh") or output.get("summaryZh") or output.get("translated_summary")
+        summary_short, summary_long = self._resolve_summary_pair(
+            short_text=self._normalize_summary_optional(
+                output.get("summary_short")
+                or output.get("summaryShort")
+                or output.get("short_summary")
+                or output.get("summary"),
+                max_length=summary_short_max,
+            ),
+            long_text=self._normalize_summary_optional(
+                output.get("summary_long")
+                or output.get("summaryLong")
+                or output.get("long_summary")
+                or output.get("summary_detail")
+                or output.get("summary"),
+                max_length=summary_long_max,
+            ),
+            short_max_length=summary_short_max,
+            long_max_length=summary_long_max,
+        )
+        summary_short_zh, summary_long_zh = self._resolve_summary_pair(
+            short_text=self._normalize_summary_optional(
+                output.get("summary_short_zh")
+                or output.get("summaryShortZh")
+                or output.get("short_summary_zh")
+                or output.get("summary_zh")
+                or output.get("summaryZh")
+                or output.get("translated_summary"),
+                max_length=MAX_SUMMARY_SHORT_LENGTH_ZH,
+            ),
+            long_text=self._normalize_summary_optional(
+                output.get("summary_long_zh")
+                or output.get("summaryLongZh")
+                or output.get("long_summary_zh")
+                or output.get("summary_zh")
+                or output.get("summaryZh")
+                or output.get("translated_summary"),
+                max_length=MAX_SUMMARY_LONG_LENGTH_ZH,
+            ),
+            short_max_length=MAX_SUMMARY_SHORT_LENGTH_ZH,
+            long_max_length=MAX_SUMMARY_LONG_LENGTH_ZH,
         )
         tags = self._normalize_tags(output.get("tags"))
         tags_zh = self._normalize_tags(
@@ -263,16 +313,17 @@ class LLMClient:
             or output.get("translated_tags")
             or output.get("translatedTags")
         )
-        if not summary:
+        if not summary_short or not summary_long:
             raise LLMClientError(code="invalid_output", message="模型输出缺少有效摘要")
-        if source_language == "non-zh" and not summary_zh:
+        if source_language == "non-zh" and (not summary_short_zh or not summary_long_zh):
             raise LLMClientError(code="invalid_output", message="非中文内容缺少中文摘要")
         if not tags:
             raise LLMClientError(code="invalid_output", message="模型输出缺少有效标签")
         if source_language == "non-zh" and not tags_zh:
             raise LLMClientError(code="invalid_output", message="非中文内容缺少中文标签")
         if source_language == "zh":
-            summary_zh = summary_zh or summary
+            summary_short_zh = summary_short_zh or summary_short
+            summary_long_zh = summary_long_zh or summary_long
             title_zh = title_zh or title
             tags_zh = tags_zh or tags
 
@@ -286,8 +337,10 @@ class LLMClient:
             title=title,
             title_zh=title_zh,
             published_at=published_at,
-            summary=summary,
-            summary_zh=summary_zh,
+            summary_short=summary_short,
+            summary_short_zh=summary_short_zh,
+            summary_long=summary_long,
+            summary_long_zh=summary_long_zh,
             tags=tags,
             tags_zh=tags_zh,
             model_name=model_name,
@@ -462,16 +515,41 @@ class LLMClient:
             return None
         return title[:MAX_TITLE_LENGTH]
 
-    def _normalize_summary(self, raw: Any) -> str:
-        if not isinstance(raw, str):
-            return ""
-        return raw.strip()[:MAX_SUMMARY_LENGTH]
-
-    def _normalize_summary_optional(self, raw: Any) -> str | None:
+    def _normalize_summary_optional(self, raw: Any, *, max_length: int) -> str | None:
         if not isinstance(raw, str):
             return None
-        normalized = raw.strip()[:MAX_SUMMARY_LENGTH]
+        normalized = raw.strip()[:max_length]
         return normalized or None
+
+    def _resolve_summary_pair(
+        self,
+        *,
+        short_text: str | None,
+        long_text: str | None,
+        short_max_length: int,
+        long_max_length: int,
+    ) -> tuple[str | None, str | None]:
+        short_value = self._normalize_summary_optional(short_text, max_length=short_max_length)
+        long_value = self._normalize_summary_optional(long_text, max_length=long_max_length)
+
+        if not short_value and not long_value:
+            return None, None
+        if not long_value:
+            long_value = short_value
+        if not short_value and long_value:
+            short_value = self._truncate_summary_for_short(long_value, max_length=short_max_length)
+        return short_value, long_value
+
+    def _truncate_summary_for_short(self, text: str, *, max_length: int) -> str:
+        normalized = text.strip()
+        if len(normalized) <= max_length:
+            return normalized
+        return normalized[:max_length].rstrip()
+
+    def _summary_limits_for_language(self, source_language: str) -> tuple[int, int]:
+        if source_language == "zh":
+            return MAX_SUMMARY_SHORT_LENGTH_ZH, MAX_SUMMARY_LONG_LENGTH_ZH
+        return MAX_SUMMARY_SHORT_LENGTH_NON_ZH, MAX_SUMMARY_LONG_LENGTH_NON_ZH
 
     def _normalize_optional_string(self, raw: Any) -> str | None:
         if not isinstance(raw, str):

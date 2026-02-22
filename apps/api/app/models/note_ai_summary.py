@@ -24,6 +24,7 @@ class NoteAISummary(Base):
     output_tags_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     output_tags_zh_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_text_zh: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(128), nullable=True)

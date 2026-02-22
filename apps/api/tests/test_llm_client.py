@@ -122,7 +122,10 @@ def test_parse_result_for_zh_falls_back_to_zh_fields(
     result = llm_client._parse_result(provider_style="openai", response_data=response_data)
 
     assert result.source_language == "zh"
-    assert result.summary_zh == "中文摘要"
+    assert result.summary_short == "中文摘要"
+    assert result.summary_long == "中文摘要"
+    assert result.summary_short_zh == "中文摘要"
+    assert result.summary_long_zh == "中文摘要"
     assert result.tags_zh == ["大模型", "智能体"]
 
 
@@ -166,3 +169,58 @@ def test_parse_json_content_supports_markdown_fenced_json(llm_client: LLMClient)
     parsed = llm_client._parse_json_content(text)
 
     assert parsed == {"summary": "ok", "tags": ["openai"]}
+
+
+@pytest.mark.parametrize(
+    ("source_language", "summary_short", "summary_long", "summary_short_zh", "summary_long_zh", "expected"),
+    [
+        (
+            "non-zh",
+            "a" * 220,
+            "b" * 620,
+            "中" * 120,
+            "文" * 320,
+            (200, 600, 100, 300),
+        ),
+        (
+            "zh",
+            "中" * 120,
+            "文" * 320,
+            None,
+            None,
+            (100, 300, 100, 300),
+        ),
+    ],
+)
+def test_parse_result_applies_language_specific_summary_limits(
+    llm_client: LLMClient,
+    source_language: str,
+    summary_short: str,
+    summary_long: str,
+    summary_short_zh: str | None,
+    summary_long_zh: str | None,
+    expected: tuple[int, int, int, int],
+) -> None:
+    payload: dict[str, object] = {
+        "source_language": source_language,
+        "title": "title",
+        "summary_short": summary_short,
+        "summary_long": summary_long,
+        "tags": ["openai"],
+    }
+    if source_language == "non-zh":
+        payload["summary_short_zh"] = summary_short_zh
+        payload["summary_long_zh"] = summary_long_zh
+        payload["tags_zh"] = ["开放ai"]
+
+    response_data = {
+        "choices": [{"message": {"content": json.dumps(payload, ensure_ascii=False)}}],
+        "usage": {"prompt_tokens": 12, "completion_tokens": 6},
+    }
+
+    result = llm_client._parse_result(provider_style="openai", response_data=response_data)
+    short_len, long_len, short_zh_len, long_zh_len = expected
+    assert len(result.summary_short) == short_len
+    assert len(result.summary_long) == long_len
+    assert len(result.summary_short_zh or "") == short_zh_len
+    assert len(result.summary_long_zh or "") == long_zh_len

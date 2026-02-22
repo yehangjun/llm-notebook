@@ -11,6 +11,8 @@ class NoteSummaryPublic(BaseModel):
     source_language: str | None
     title: str | None
     published_at: datetime | None
+    summary_short_text: str | None
+    summary_long_text: str | None
     summary_text: str | None
     tags: list[str] = Field(default_factory=list)
     model_provider: str | None
