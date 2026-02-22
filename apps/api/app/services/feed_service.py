@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 import re
 from uuid import UUID
 
@@ -57,22 +58,18 @@ class FeedService:
 
         followed_user_ids, followed_source_ids = self._load_following_sets(user.id)
         prefer_zh = self._prefer_zh_ui(user.ui_language)
-        note_summary_cache: dict[UUID, NoteAISummary | None] = {}
 
         fetch_limit = max(limit + offset + 120, 240)
         notes = self._load_public_notes(fetch_limit=fetch_limit)
+        note_summary_cache = self._load_latest_note_summaries([note.id for note in notes])
         aggregates = self._load_aggregate_items(fetch_limit=fetch_limit)
 
-        mixed: list[tuple[str, Note | AggregateItem]] = []
+        mixed: list[tuple[str, Note | AggregateItem, datetime]] = []
         for note in notes:
             if note.user_id == user.id:
                 continue
-            latest_summary: NoteAISummary | None = None
+            latest_summary = note_summary_cache.get(note.id)
             if tag_value:
-                latest_summary = note_summary_cache.get(note.id)
-                if note.id not in note_summary_cache:
-                    latest_summary = self.note_repo.get_latest_summary(note.id)
-                    note_summary_cache[note.id] = latest_summary
                 if not self._matches_note_tag(
                     note=note,
                     latest_summary=latest_summary,
@@ -96,7 +93,16 @@ class FeedService:
                 followed_ids=followed_user_ids,
             ):
                 continue
-            mixed.append(("note", note))
+            mixed.append(
+                (
+                    "note",
+                    note,
+                    self._resolve_feed_sort_at(
+                        published_at=latest_summary.published_at if latest_summary else None,
+                        updated_at=note.updated_at,
+                    ),
+                )
+            )
 
         for aggregate in aggregates:
             if tag_value and not self._matches_aggregate_tag(
@@ -121,10 +127,19 @@ class FeedService:
                 followed_ids=followed_source_ids,
             ):
                 continue
-            mixed.append(("aggregate", aggregate))
+            mixed.append(
+                (
+                    "aggregate",
+                    aggregate,
+                    self._resolve_feed_sort_at(
+                        published_at=aggregate.published_at,
+                        updated_at=aggregate.updated_at,
+                    ),
+                )
+            )
 
-        mixed.sort(key=lambda item: item[1].updated_at, reverse=True)
-        picked = mixed[offset : offset + limit]
+        mixed.sort(key=lambda item: (item[2], item[1].updated_at), reverse=True)
+        picked = [(kind, record) for kind, record, _ in mixed[offset : offset + limit]]
         return FeedListResponse(
             items=self._build_items_for_records(
                 user=user,
@@ -588,6 +603,31 @@ class FeedService:
         )
         return list(self.db.scalars(stmt))
 
+    def _load_latest_note_summaries(self, note_ids: list[UUID]) -> dict[UUID, NoteAISummary | None]:
+        if not note_ids:
+            return {}
+
+        summaries = list(
+            self.db.scalars(
+                select(NoteAISummary)
+                .where(NoteAISummary.note_id.in_(note_ids))
+                .order_by(
+                    NoteAISummary.note_id.asc(),
+                    NoteAISummary.analyzed_at.desc(),
+                    NoteAISummary.created_at.desc(),
+                )
+            )
+        )
+        latest_by_note: dict[UUID, NoteAISummary | None] = {note_id: None for note_id in note_ids}
+        for summary in summaries:
+            if latest_by_note.get(summary.note_id) is not None:
+                continue
+            latest_by_note[summary.note_id] = summary
+        return latest_by_note
+
+    def _resolve_feed_sort_at(self, *, published_at: datetime | None, updated_at: datetime) -> datetime:
+        return published_at or updated_at
+
     def _load_aggregate_items(self, *, fetch_limit: int) -> list[AggregateItem]:
         stmt = (
             select(AggregateItem)
@@ -598,7 +638,10 @@ class FeedService:
                 SourceCreator.is_active.is_(True),
                 SourceCreator.is_deleted.is_(False),
             )
-            .order_by(desc(AggregateItem.updated_at))
+            .order_by(
+                desc(func.coalesce(AggregateItem.published_at, AggregateItem.updated_at)),
+                desc(AggregateItem.updated_at),
+            )
             .limit(fetch_limit)
         )
         return list(self.db.scalars(stmt))

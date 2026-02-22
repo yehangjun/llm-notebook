@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -99,3 +100,80 @@ def test_get_creator_profile_returns_user_profile() -> None:
     assert profile.content_count == 3
     assert profile.following is True
     assert profile.can_follow is True
+
+
+def test_list_feed_orders_by_published_at_then_updated_at_fallback() -> None:
+    service = _build_service()
+    service.db = MagicMock()
+    service.note_repo = MagicMock()
+
+    current_user = SimpleNamespace(id=uuid4(), ui_language="zh-CN")
+    note_creator = SimpleNamespace(user_id="alice", nickname="Alice")
+    source_creator = SimpleNamespace(slug="openai", display_name="OpenAI")
+
+    note_with_old_published = SimpleNamespace(
+        id=uuid4(),
+        user_id=uuid4(),
+        user=note_creator,
+        source_title="old published",
+        source_url_normalized="https://example.com/old",
+        source_domain="example.com",
+        note_body_md="",
+        updated_at=datetime(2026, 2, 22, 0, 0, tzinfo=timezone.utc),
+    )
+    note_without_published = SimpleNamespace(
+        id=uuid4(),
+        user_id=uuid4(),
+        user=note_creator,
+        source_title="fallback updated",
+        source_url_normalized="https://example.com/fallback",
+        source_domain="example.com",
+        note_body_md="",
+        updated_at=datetime(2026, 2, 21, 0, 0, tzinfo=timezone.utc),
+    )
+    aggregate = SimpleNamespace(
+        id=uuid4(),
+        source_creator_id=uuid4(),
+        source_creator=source_creator,
+        source_url_normalized="https://openai.com/research",
+        source_domain="openai.com",
+        source_title="aggregate item",
+        source_title_zh=None,
+        source_language="non-zh",
+        tags_json=[],
+        tags_zh_json=[],
+        analysis_status="succeeded",
+        summary_text="summary",
+        summary_text_zh=None,
+        published_at=datetime(2026, 2, 20, 0, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 2, 19, 0, 0, tzinfo=timezone.utc),
+    )
+
+    service._load_following_sets = MagicMock(return_value=(set(), set()))
+    service._load_public_notes = MagicMock(return_value=[note_with_old_published, note_without_published])
+    service._load_latest_note_summaries = MagicMock(
+        return_value={
+            note_with_old_published.id: SimpleNamespace(
+                published_at=datetime(2026, 2, 10, 0, 0, tzinfo=timezone.utc),
+            )
+        }
+    )
+    service._load_aggregate_items = MagicMock(return_value=[aggregate])
+    service._build_items_for_records = MagicMock(return_value=[])
+
+    service.list_feed(
+        user=current_user,
+        scope="all",
+        tag=None,
+        keyword=None,
+        offset=0,
+        limit=10,
+    )
+
+    records = service._build_items_for_records.call_args.kwargs["records"]
+
+    assert [(kind, item.id) for kind, item in records] == [
+        ("note", note_without_published.id),
+        ("aggregate", aggregate.id),
+        ("note", note_with_old_published.id),
+    ]
