@@ -4,6 +4,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import AnalysisStatusBadge from "../../../../../components/AnalysisStatusBadge";
+import CreatorProfileHoverCard from "../../../../../components/CreatorProfileHoverCard";
+import InteractionCountButton from "../../../../../components/InteractionCountButton";
 import { Badge } from "../../../../../components/ui/badge";
 import { Button } from "../../../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
@@ -123,12 +125,12 @@ export default function FeedItemDetailPage() {
         <div className="mx-auto w-full max-w-[980px]">
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">内容详情</CardTitle>
+              <CardTitle className="text-2xl">详情</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error || "内容不存在"}</div>
               <Button variant="secondary" size="sm" type="button" onClick={() => router.push(returnPath)}>
-                返回广场
+                返回
               </Button>
             </CardContent>
           </Card>
@@ -143,10 +145,13 @@ export default function FeedItemDetailPage() {
       <div className="mx-auto w-full max-w-[980px]">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle className="text-2xl">广场详情</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-2xl">详情</CardTitle>
+              <Badge variant="secondary">{item.item_type === "aggregate" ? "聚合" : "笔记"}</Badge>
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" type="button" onClick={() => router.push(returnPath)}>
-                返回广场
+                返回
               </Button>
               <Button
                 variant="secondary"
@@ -168,7 +173,16 @@ export default function FeedItemDetailPage() {
                 </div>
                 <div>
                   <span className="font-medium">创作者：</span>
-                  {item.creator_name}
+                  <CreatorProfileHoverCard
+                    className="align-middle"
+                    creatorName={item.creator_name}
+                    creatorKind={item.creator_kind}
+                    creatorId={item.creator_id}
+                    sourceDomain={item.source_domain}
+                    following={item.following}
+                    disabled={acting === "follow"}
+                    onToggleFollow={onToggleFollow}
+                  />
                 </div>
                 <div>
                   <span className="font-medium">来源域名：</span>
@@ -199,23 +213,20 @@ export default function FeedItemDetailPage() {
 
             <section className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge>{item.bookmark_count} 收藏</Badge>
-                <Badge>{item.like_count} 点赞</Badge>
-                <Button variant="secondary" size="sm" type="button" onClick={() => void onToggleFollow()} disabled={acting === "follow"}>
-                  {item.following ? "取消关注" : "关注"}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  type="button"
-                  onClick={() => void onToggleBookmark()}
+                <InteractionCountButton
+                  kind="bookmark"
+                  count={item.bookmark_count}
+                  active={item.bookmarked}
                   disabled={acting === "bookmark"}
-                >
-                  {item.bookmarked ? "取消收藏" : "收藏"}
-                </Button>
-                <Button variant="secondary" size="sm" type="button" onClick={() => void onToggleLike()} disabled={acting === "like"}>
-                  {item.liked ? "取消点赞" : "点赞"}
-                </Button>
+                  onClick={() => void onToggleBookmark()}
+                />
+                <InteractionCountButton
+                  kind="like"
+                  count={item.like_count}
+                  active={item.liked}
+                  disabled={acting === "like"}
+                  onClick={() => void onToggleLike()}
+                />
               </div>
             </section>
 

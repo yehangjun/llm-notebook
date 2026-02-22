@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Button, buttonVariants } from "./ui/button";
 import { Input } from "./ui/input";
@@ -12,8 +12,12 @@ import { cn } from "../lib/utils";
 
 export default function GlobalNav() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const [keyword, setKeyword] = useState("");
+  const returnTo = searchParams.get("return_to");
+  const notesActive = resolveNotesActive(pathname, returnTo);
+  const feedActive = resolveFeedActive(pathname, returnTo);
 
   function onSearch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -48,7 +52,7 @@ export default function GlobalNav() {
             <Link
               className={cn(
                 buttonVariants({
-                  variant: pathname?.startsWith("/notes") ? "default" : "ghost",
+                  variant: notesActive ? "default" : "ghost",
                   size: "sm",
                 }),
               )}
@@ -59,7 +63,7 @@ export default function GlobalNav() {
             <Link
               className={cn(
                 buttonVariants({
-                  variant: pathname?.startsWith("/feed") ? "default" : "ghost",
+                  variant: feedActive ? "default" : "ghost",
                   size: "sm",
                 }),
               )}
@@ -74,7 +78,7 @@ export default function GlobalNav() {
           <Link
             className={cn(
               buttonVariants({
-                variant: pathname?.startsWith("/notes") ? "default" : "ghost",
+                variant: notesActive ? "default" : "ghost",
                 size: "sm",
               }),
             )}
@@ -85,7 +89,7 @@ export default function GlobalNav() {
           <Link
             className={cn(
               buttonVariants({
-                variant: pathname?.startsWith("/feed") ? "default" : "ghost",
+                variant: feedActive ? "default" : "ghost",
                 size: "sm",
               }),
             )}
@@ -114,4 +118,17 @@ export default function GlobalNav() {
       </nav>
     </header>
   );
+}
+
+function resolveNotesActive(pathname: string | null, returnTo: string | null): boolean {
+  if (!pathname) return false;
+  if (pathname.startsWith("/notes")) return true;
+  if (pathname.startsWith("/feed/items") && returnTo?.startsWith("/notes")) return true;
+  return false;
+}
+
+function resolveFeedActive(pathname: string | null, returnTo: string | null): boolean {
+  if (!pathname) return false;
+  if (pathname.startsWith("/feed/items") && returnTo?.startsWith("/notes")) return false;
+  return pathname.startsWith("/feed");
 }

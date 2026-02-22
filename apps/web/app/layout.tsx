@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import GlobalNav from "../components/GlobalNav";
 
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
-        <GlobalNav />
+        <Suspense fallback={<div className="h-[84px]" />}>
+          <GlobalNav />
+        </Suspense>
         <div className="pt-[84px]">{children}</div>
       </body>
     </html>
