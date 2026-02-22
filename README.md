@@ -31,6 +31,34 @@ docker compose -f infra/docker-compose.yml up --build
 - Web: [http://localhost:3000](http://localhost:3000)
 - API health: [http://localhost:8000/healthz](http://localhost:8000/healthz)
 
+## 生产部署（阿里云轻服务器）
+
+1. 准备生产变量：
+```bash
+cp .env.example .env
+```
+
+2. 至少修改以下环境变量（`.env`）：
+- `APP_DOMAIN`（例如 `note.example.com`）
+- `SECRET_KEY`
+- `ADMIN_PASSWORD`
+- `POSTGRES_PASSWORD`
+- `NEXT_PUBLIC_API_BASE_URL=/api/v1`
+
+3. 启动生产编排（含 Caddy 反向代理 + HTTPS）：
+```bash
+docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --build
+```
+
+4. 开放安全组端口：
+- `80/tcp`
+- `443/tcp`
+- `22/tcp`
+
+说明：
+- 外部流量统一走 Caddy（80/443），`api/db/redis/web` 不直接暴露公网端口。
+- 默认前端 API 地址为同域路径 `/api/v1`，无需让浏览器直连 `8000`。
+
 ## API 前缀
 
 - `/api/v1/auth/register`
