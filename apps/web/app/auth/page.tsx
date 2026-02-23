@@ -10,6 +10,7 @@ import { Input } from "../../components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { apiRequest } from "../../lib/api";
 import { AuthResponse, saveAuth } from "../../lib/auth";
+import { API_BASE_URL } from "../../lib/config";
 
 type Tab = "login" | "register";
 type GenericResponse = { message: string };
@@ -43,6 +44,13 @@ export default function AuthPage() {
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [sendCodeCountdown]);
+
+  useEffect(() => {
+    const redirectError = new URLSearchParams(window.location.search).get("error");
+    if (redirectError) {
+      setError(redirectError);
+    }
+  }, []);
 
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -167,6 +175,9 @@ export default function AuthPage() {
                       忘记密码
                     </Link>
                   </div>
+                  <a className={`${buttonVariants({ variant: "secondary" })} w-full`} href={`${API_BASE_URL}/auth/sso/google/start`}>
+                    使用 Google 账号登录
+                  </a>
                 </form>
               </TabsContent>
 
@@ -272,6 +283,9 @@ export default function AuthPage() {
                   <Button type="submit" disabled={loading}>
                     {loading ? "提交中..." : "注册"}
                   </Button>
+                  <a className={`${buttonVariants({ variant: "secondary" })} w-full`} href={`${API_BASE_URL}/auth/sso/google/start`}>
+                    使用 Google 账号登录
+                  </a>
                 </form>
               </TabsContent>
             </Tabs>

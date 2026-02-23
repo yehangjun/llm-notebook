@@ -19,7 +19,7 @@
 - 退出登录
 - 忘记密码与重置密码
 - 登录失败限制（轻量风控）
-- 后端保留可插拔 SSO 接口（gmail/wechat），前端不展示入口
+- 支持 Google 账号 SSO 登录（OAuth 2.0 + OpenID Connect）
 - 系统初始化自动创建管理员账号（与普通用户同表）
 - 管理员登录后显示管理入口，支持用户账号管理
 - 学习笔记闭环：外部链接导入 -> 按需解析 -> AI 摘要 -> 用户心得编辑 -> 公开分享
@@ -116,15 +116,35 @@ infra/
 - 令牌一次性使用
 - 超时或已用直接失效
 
-### 4.4 SSO 预留模型
+### 4.4 Google SSO 模型与规则
 - `user_identities.id`: UUID
 - `user_id`: FK -> users.id
-- `provider`: `gmail` / `wechat`
+- `provider`: `google`
 - `provider_sub`: provider 侧唯一标识
 - `created_at`: TIMESTAMPTZ
 
 约束：
 - `(provider, provider_sub)` 唯一
+- `provider` 仅允许 `google`
+
+流程与行为：
+- 协议采用 OAuth 2.0 + OpenID Connect（Authorization Code + PKCE）
+- 最小权限范围：`openid profile email`
+- 认证页（登录/注册双 Tab）展示 `Google 账号登录` 入口
+- 首次使用 Google 登录时：
+  - 若 email 不存在，进入补全页，要求填写唯一 `user_id`（沿用现有规则），可选填写昵称和界面语言，然后创建账号并绑定 Google 身份
+  - 若 email 已存在且未绑定 Google，自动绑定到该账号并登录
+  - 若 email 已绑定 Google，直接登录
+  - 若回调中的 Google 身份已绑定到其他账号，拒绝登录并提示联系管理员
+- 账号被逻辑删除后，不可再通过 Google 登录
+- SSO 登录成功后，签发与密码登录一致的会话（同一套 token/过期/退出登录机制）
+- V2 不支持用户在个人资料页解绑 Google 身份
+
+安全约束：
+- 后端必须校验 Google 回调中的关键字段：`iss`、`aud`、`exp`、`sub`、`email_verified`、`nonce`
+- 使用 `state` 防 CSRF，使用 `nonce` 防重放
+- Google 回调地址必须是配置白名单，生产环境仅允许 `https`
+- 发生第三方授权失败、用户取消授权、状态校验失败时，统一返回可读错误并允许用户重试
 
 ### 4.5 管理员初始化规则
 - 系统启动时执行管理员引导逻辑：
@@ -249,13 +269,16 @@ Redis Key：
 - 可改：`nickname`, `ui_language`
 - 禁改：`user_id`, `email`
 
-### 6.3 SSO 预留接口
-- `GET /auth/sso/{provider}/start`
-- `GET /auth/sso/{provider}/callback`
+### 6.3 Google SSO 接口
+- `GET /auth/sso/google/start`
+- `GET /auth/sso/google/callback`
+- `POST /auth/sso/google/complete`
 
 约束：
-- `provider` 仅支持 `gmail` / `wechat`
-- V2 前端不展示入口按钮
+- callback 必须校验 `state` / `nonce` 与 OIDC claim
+- callback 返回 `登录成功` 或 `需补全资料` 两类结果
+- `需补全资料` 时进入补全页，完成 `user_id` 校验后创建账号并绑定 Google 身份
+- `POST /auth/sso/google/complete` 入参：`sso_ticket`, `user_id`, `nickname?`, `ui_language?`
 
 ### 6.4 管理系统接口
 1. `GET /admin/users`
@@ -304,6 +327,7 @@ Redis Key：
 ### 7.1 路由规划
 - `/`：首页（右上角账号入口）
 - `/auth`：认证页（登录/注册双 Tab）
+- `/auth/google/complete`：Google 首次登录资料补全页
 - `/profile`：个人资料页
 - `/feed`：广场（信息流）
 - `/feed/items/{item_type}/{item_id}`：信息流详情
@@ -333,6 +357,8 @@ Redis Key：
 ### 7.3 认证页交互
 - 登录 Tab：`principal + password`
 - 注册 Tab：`user_id + email + 发送邮箱验证码 + email_code + password + password_confirm + nickname + ui_language`
+- 登录 Tab 和注册 Tab 都展示 `Google 账号登录` 入口
+- Google 首次登录且系统中无匹配账号时，跳转资料补全页，`user_id` 必填
 - 公共能力：前端表单校验、服务端错误提示、忘记密码入口
 
 ### 7.4 个人资料页交互
@@ -405,7 +431,7 @@ Redis Key：
 组件映射（首批）：
 - `GlobalNav`：`Input`（搜索）、`Button`（写笔记/通知/账号）、`Tabs`（中区导航）
 - 列表卡片（笔记/广场）：`Card` + `Badge` + `Button`
-- 认证页：`Tabs`（登录/注册）+ `Input` + `Button`
+- 认证页：`Tabs`（登录/注册）+ `Input` + `Button`（含 Google 登录按钮）
 - 管理页：`Tabs`（模块切换）+ `Table`（用户/笔记/聚合源）
 
 设计 Token（语义层）：
@@ -486,7 +512,7 @@ Redis Key：
 - 支持退出登录
 - 存在登录失败限制与锁定策略
 - 支持忘记密码与重置密码全流程
-- 后端保留 SSO 路由与 provider 扩展，前端不展示入口
+- 支持 Google 账号 SSO 登录，认证页展示 Google 入口，且包含首次登录资料补全流程
 - 忘记密码发件账号为 `llm_notebook@163.com`
 - 系统初始化会自动创建/提升管理员账号
 - 管理员登录后前端显示“管理系统”入口

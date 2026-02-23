@@ -36,6 +36,9 @@ services:
       context: ../apps/api
     env_file:
       - ../.env
+    environment:
+      WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8000/api/v1/auth/sso/google/callback}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

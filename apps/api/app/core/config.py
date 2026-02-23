@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     smtp_ssl: bool = Field(default=True, validation_alias="SMTP_SSL")
 
     web_base_url: str = Field(default="http://localhost:3000", validation_alias="WEB_BASE_URL")
+    google_oauth_client_id: str | None = Field(default=None, validation_alias="GOOGLE_OAUTH_CLIENT_ID")
+    google_oauth_client_secret: str | None = Field(default=None, validation_alias="GOOGLE_OAUTH_CLIENT_SECRET")
+    google_oauth_redirect_uri: str | None = Field(default=None, validation_alias="GOOGLE_OAUTH_REDIRECT_URI")
+    google_oauth_scope: str = Field(default="openid profile email", validation_alias="GOOGLE_OAUTH_SCOPE")
+    google_oauth_state_ttl_seconds: int = Field(default=600, validation_alias="GOOGLE_OAUTH_STATE_TTL_SECONDS")
+    google_oauth_complete_ttl_seconds: int = Field(
+        default=900,
+        validation_alias="GOOGLE_OAUTH_COMPLETE_TTL_SECONDS",
+    )
+    google_oauth_timeout_seconds: int = Field(default=10, validation_alias="GOOGLE_OAUTH_TIMEOUT_SECONDS")
 
     login_fail_threshold: int = Field(default=5, validation_alias="LOGIN_FAIL_THRESHOLD")
     login_fail_ttl_seconds: int = Field(default=900, validation_alias="LOGIN_FAIL_TTL_SECONDS")

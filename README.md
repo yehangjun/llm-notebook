@@ -9,7 +9,7 @@ Codex的配置是：GPT-5.3-Codex / Extra High
 > Everything about AI
 
 根据 `SPEC.md` 实现的最小可用骨架，包含：
-- FastAPI 后端（注册/登录/退出、忘记密码/重置密码、个人资料、SSO 预留）
+- FastAPI 后端（注册/登录/退出、忘记密码/重置密码、个人资料、Google SSO）
 - Next.js 前端（全局导航、首页品牌化设计、认证页、资料页、忘记/重置密码页）
 - 管理系统（管理员初始化、管理入口、用户账号管理）
 - PostgreSQL + Redis + Docker Compose
@@ -104,8 +104,83 @@ docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --build
 - `/api/v1/notes/{note_id}` (GET/PATCH)
 - `/api/v1/notes/{note_id}/reanalyze` (POST)
 - `/api/v1/notes/public/{note_id}` (GET)
-- `/api/v1/auth/sso/{provider}/start`（预留）
-- `/api/v1/auth/sso/{provider}/callback`（预留）
+- `/api/v1/auth/sso/google/start`（发起 Google 授权）
+- `/api/v1/auth/sso/google/callback`（Google 回调）
+- `/api/v1/auth/sso/google/complete`（首次登录资料补全）
+
+## Google SSO 联调
+
+1. 在 Google Cloud Console 创建 OAuth Client（Web application）：
+- 进入 `APIs & Services -> OAuth consent screen`，先完成 consent screen 基础配置
+- 建议先用 `Testing` 状态，并在 `Test users` 里加入测试账号
+- 进入 `Credentials`，创建 `OAuth client ID`（类型选择 Web）
+
+2. 配置回调与来源地址：
+- `Authorized redirect URIs` 添加：
+  - `http://localhost:8000/api/v1/auth/sso/google/callback`
+- `Authorized JavaScript origins` 添加：
+  - `http://localhost:3000`
+
+3. 配置后端环境变量（`.env`）：
+```bash
+GOOGLE_OAUTH_CLIENT_ID=你的_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=你的_client_secret
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8000/api/v1/auth/sso/google/callback
+GOOGLE_OAUTH_SCOPE=openid profile email
+GOOGLE_OAUTH_STATE_TTL_SECONDS=600
+GOOGLE_OAUTH_COMPLETE_TTL_SECONDS=900
+GOOGLE_OAUTH_TIMEOUT_SECONDS=10
+```
+
+4. 启动服务并验证：
+- 打开 Web 认证页：`http://localhost:3000/auth`
+- 点击 `使用 Google 账号登录`
+- 首次登录（系统里无同邮箱账号）会跳转到资料补全页，填写 `ID` 后进入系统
+- 已有同邮箱账号会自动绑定并直接登录
+
+5. 常见问题排查：
+- 报错 `redirect_uri_mismatch`：检查 Google Console 与 `.env` 的 `GOOGLE_OAUTH_REDIRECT_URI` 是否完全一致
+- 回调后提示状态失效：检查浏览器是否阻止重定向，或等待时间过长导致 state 过期
+- 显示 `Google SSO 未配置`：确认 API 容器已读取到上述 Google 环境变量
+
+### 生产环境配置模板
+
+1. 推荐部署形态（同域反向代理）：
+- Web：`https://note.example.com`
+- API：`https://note.example.com/api/v1`
+- Google 回调：`https://note.example.com/api/v1/auth/sso/google/callback`
+
+2. Google Cloud Console（生产）：
+- `Authorized redirect URIs` 添加：
+  - `https://note.example.com/api/v1/auth/sso/google/callback`
+- `Authorized JavaScript origins` 添加：
+  - `https://note.example.com`
+
+3. `.env` 参考（生产）：
+```bash
+WEB_BASE_URL=https://note.example.com
+NEXT_PUBLIC_API_BASE_URL=/api/v1
+GOOGLE_OAUTH_CLIENT_ID=prod_xxx.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=prod_secret_xxx
+GOOGLE_OAUTH_REDIRECT_URI=https://note.example.com/api/v1/auth/sso/google/callback
+GOOGLE_OAUTH_SCOPE=openid profile email
+GOOGLE_OAUTH_STATE_TTL_SECONDS=600
+GOOGLE_OAUTH_COMPLETE_TTL_SECONDS=900
+GOOGLE_OAUTH_TIMEOUT_SECONDS=10
+```
+
+4. 若 Web 与 API 分域（不推荐首版）：
+- 例如 Web：`https://app.example.com`，API：`https://api.example.com`
+- 则 `GOOGLE_OAUTH_REDIRECT_URI` 应配置为：
+  - `https://api.example.com/api/v1/auth/sso/google/callback`
+- 同时 `WEB_BASE_URL` 必须是：
+  - `https://app.example.com`
+
+5. 上线前检查清单：
+- `GOOGLE_OAUTH_REDIRECT_URI` 与 Google Console 配置逐字符一致（包含协议、域名、路径）
+- 回调地址必须使用 `https`
+- OAuth consent screen 的发布状态与测试账号范围符合预期
+- 生产密钥不写入代码库，仅通过环境变量注入
 
 ## Alembic
 
@@ -136,6 +211,14 @@ alembic revision -m "your migration name"
   - `REGISTER_EMAIL_CODE_TTL_SECONDS`
   - `REGISTER_EMAIL_CODE_COOLDOWN_SECONDS`
   - `REGISTER_EMAIL_CODE_MAX_ATTEMPTS`
+- Google SSO 相关环境变量：
+  - `GOOGLE_OAUTH_CLIENT_ID`
+  - `GOOGLE_OAUTH_CLIENT_SECRET`
+  - `GOOGLE_OAUTH_REDIRECT_URI`（需与 Google Cloud Console 保持一致）
+  - `GOOGLE_OAUTH_SCOPE`（默认 `openid profile email`）
+  - `GOOGLE_OAUTH_STATE_TTL_SECONDS`
+  - `GOOGLE_OAUTH_COMPLETE_TTL_SECONDS`
+  - `GOOGLE_OAUTH_TIMEOUT_SECONDS`
 - 内容分析模型相关环境变量（支持 `OpenAI` / `Gemini` / `Claude` 接口风格）：
   - `LLM_PROVIDER_NAME`（默认 `openai`，可选 `openai` / `gemini` / `claude`）
   - `LLM_BASE_URL`（可选，不填时按 provider 使用官方默认端点）

@@ -36,6 +36,13 @@ class ResetPasswordRequest(BaseModel):
     new_password_confirm: str
 
 
+class SSOCompleteRequest(BaseModel):
+    sso_ticket: str = Field(min_length=16, max_length=256)
+    user_id: str = Field(min_length=4, max_length=32, pattern=r"^[a-zA-Z0-9_]{4,32}$")
+    nickname: str | None = Field(default=None, max_length=64)
+    ui_language: str = Field(default="zh-CN")
+
+
 class TokenPayload(BaseModel):
     access_token: str
     refresh_token: str
